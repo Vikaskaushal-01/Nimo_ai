@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg text-slate-200 font-sans antialiased;
+    background-image:
+      radial-gradient(60rem 60rem at 110% -10%, rgba(124, 92, 255, 0.12), transparent 60%),
+      radial-gradient(50rem 50rem at -10% 110%, rgba(56, 189, 248, 0.08), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-white/10 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-white/20;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply border border-white/10 bg-white/[0.03] backdrop-blur-xl;
+  }
+
+  .glass-strong {
+    @apply border border-white/10 bg-white/[0.06] backdrop-blur-2xl;
+  }
+
+  /* Markdown rendering */
+  .prose-ai {
+    @apply text-slate-200 leading-relaxed;
+  }
+  .prose-ai h1,
+  .prose-ai h2,
+  .prose-ai h3 {
+    @apply font-semibold text-white mt-5 mb-2;
+  }
+  .prose-ai h1 { @apply text-xl; }
+  .prose-ai h2 { @apply text-lg; }
+  .prose-ai h3 { @apply text-base; }
+  .prose-ai p { @apply my-2.5; }
+  .prose-ai ul { @apply list-disc pl-6 my-2.5 space-y-1; }
+  .prose-ai ol { @apply list-decimal pl-6 my-2.5 space-y-1; }
+  .prose-ai a { @apply text-accent-soft underline underline-offset-2; }
+  .prose-ai code:not(pre code) {
+    @apply rounded bg-white/10 px-1.5 py-0.5 text-[0.85em] font-mono text-accent-soft;
+  }
+  .prose-ai pre {
+    @apply my-3 rounded-xl overflow-hidden;
+  }
+  .prose-ai table {
+    @apply my-3 w-full border-collapse text-sm;
+  }
+  .prose-ai th,
+  .prose-ai td {
+    @apply border border-white/10 px-3 py-1.5 text-left;
+  }
+  .prose-ai blockquote {
+    @apply border-l-2 border-accent/50 pl-4 my-3 text-slate-400 italic;
+  }
+}

@@ -1,0 +1,136 @@
+/**
+ * SINGLE SOURCE OF TRUTH for available models and evaluation weights.
+ *
+ * To add/remove a model the app can query, edit ONLY this file. The
+ * orchestrator, evaluator, ranker, and frontend model selector all read from
+ * here — no business logic changes required.
+ *
+ * `id` must be a valid OpenRouter model slug (https://openrouter.ai/models).
+ * Prices are USD per 1,000 tokens and are used purely for cost estimation;
+ * keep them roughly current but they are not safety-critical.
+ */
+
+export interface ModelPricing {
+  /** USD per 1K prompt (input) tokens. */
+  promptPer1k: number;
+  /** USD per 1K completion (output) tokens. */
+  completionPer1k: number;
+}
+
+export interface ModelDescriptor {
+  /** OpenRouter slug, e.g. "openai/gpt-4o-mini". */
+  id: string;
+  /** Human-friendly name shown in the UI. */
+  label: string;
+  /** Vendor family, used only for grouping/badges. */
+  vendor: string;
+  pricing: ModelPricing;
+  /** Approximate context window in tokens (informational). */
+  contextWindow: number;
+  /** When false, hidden from selection and orchestration. */
+  enabled: boolean;
+}
+
+export const MODEL_CATALOG: ModelDescriptor[] = [
+  {
+    id: "openai/gpt-4o-mini",
+    label: "GPT-4o mini",
+    vendor: "OpenAI",
+    pricing: { promptPer1k: 0.00015, completionPer1k: 0.0006 },
+    contextWindow: 128_000,
+    enabled: true,
+  },
+  {
+    id: "openai/gpt-4o",
+    label: "GPT-4o",
+    vendor: "OpenAI",
+    pricing: { promptPer1k: 0.0025, completionPer1k: 0.01 },
+    contextWindow: 128_000,
+    enabled: true,
+  },
+  {
+    id: "anthropic/claude-3.5-sonnet",
+    label: "Claude 3.5 Sonnet",
+    vendor: "Anthropic",
+    pricing: { promptPer1k: 0.003, completionPer1k: 0.015 },
+    contextWindow: 200_000,
+    enabled: true,
+  },
+  {
+    id: "anthropic/claude-3-haiku",
+    label: "Claude 3 Haiku",
+    vendor: "Anthropic",
+    pricing: { promptPer1k: 0.00025, completionPer1k: 0.00125 },
+    contextWindow: 200_000,
+    enabled: true,
+  },
+  {
+    id: "google/gemini-flash-1.5",
+    label: "Gemini 1.5 Flash",
+    vendor: "Google",
+    pricing: { promptPer1k: 0.000075, completionPer1k: 0.0003 },
+    contextWindow: 1_000_000,
+    enabled: true,
+  },
+  {
+    id: "deepseek/deepseek-chat",
+    label: "DeepSeek Chat",
+    vendor: "DeepSeek",
+    pricing: { promptPer1k: 0.00014, completionPer1k: 0.00028 },
+    contextWindow: 64_000,
+    enabled: true,
+  },
+  {
+    id: "meta-llama/llama-3.1-70b-instruct",
+    label: "Llama 3.1 70B",
+    vendor: "Meta",
+    pricing: { promptPer1k: 0.00035, completionPer1k: 0.0004 },
+    contextWindow: 131_000,
+    enabled: true,
+  },
+  {
+    id: "qwen/qwen-2.5-72b-instruct",
+    label: "Qwen 2.5 72B",
+    vendor: "Qwen",
+    pricing: { promptPer1k: 0.00035, completionPer1k: 0.0004 },
+    contextWindow: 32_000,
+    enabled: true,
+  },
+  {
+    id: "mistralai/mistral-large",
+    label: "Mistral Large",
+    vendor: "Mistral",
+    pricing: { promptPer1k: 0.002, completionPer1k: 0.006 },
+    contextWindow: 128_000,
+    enabled: true,
+  },
+];
+
+export const enabledModels = (): ModelDescriptor[] =>
+  MODEL_CATALOG.filter((m) => m.enabled);
+
+export const findModel = (id: string): ModelDescriptor | undefined =>
+  MODEL_CATALOG.find((m) => m.id === id);
+
+/**
+ * Weighted scoring configuration. Weights MUST sum to 1.0.
+ * Mirrors the spec's evaluation matrix.
+ */
+export const EVALUATION_WEIGHTS = {
+  semanticSimilarity: 0.25,
+  completeness: 0.2,
+  accuracy: 0.2,
+  reasoning: 0.15,
+  readability: 0.1,
+  contextPreservation: 0.1,
+} as const;
+
+export type MetricKey = keyof typeof EVALUATION_WEIGHTS;
+
+// Compile-time-ish guard: surfaces a misconfigured weight table at boot.
+const WEIGHT_SUM = Object.values(EVALUATION_WEIGHTS).reduce((a, b) => a + b, 0);
+if (Math.abs(WEIGHT_SUM - 1) > 1e-9) {
+  throw new Error(
+    `EVALUATION_WEIGHTS must sum to 1.0 but sum to ${WEIGHT_SUM}. Fix config/providers.ts.`,
+  );
+}
