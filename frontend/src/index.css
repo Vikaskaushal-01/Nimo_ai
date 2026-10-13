@@ -75,3 +75,13 @@
     @apply border-l-2 border-accent/50 pl-4 my-3 text-slate-400 italic;
   }
 }
+
+@layer utilities {
+  /* Horizontally scrollable rows (e.g. model chips on mobile) without a visible bar. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
