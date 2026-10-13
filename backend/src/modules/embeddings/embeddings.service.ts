@@ -10,17 +10,27 @@ import { tokenize } from "../evaluation/metrics/text.util.js";
  * provider can't embed — so nothing in the pipeline ever hard-fails on
  * embeddings.
  */
+/** Inputs per embedding request — keeps large documents under provider limits. */
+const EMBED_BATCH_SIZE = 64;
+
+/**
+ * All-or-nothing: either every text gets a provider vector or every text gets a
+ * lexical one. Mixing the two would put vectors of different dimensions in the
+ * same set, and cosine similarity across them is meaningless.
+ */
 export const embedTexts = async (texts: string[]): Promise<number[][]> => {
   if (texts.length === 0) return [];
   try {
-    const { vectors } = await getProvider().embed({
-      model: env.EMBEDDING_MODEL,
-      input: texts,
-    });
-    if (vectors.length === texts.length && vectors.every((v) => v.length > 0)) {
-      return vectors;
+    const out: number[][] = [];
+    for (let i = 0; i < texts.length; i += EMBED_BATCH_SIZE) {
+      const batch = texts.slice(i, i + EMBED_BATCH_SIZE);
+      const { vectors } = await getProvider().embed({ model: env.EMBEDDING_MODEL, input: batch });
+      if (vectors.length !== batch.length || vectors.some((v) => !v?.length)) {
+        throw new Error("Embedding response shape mismatch");
+      }
+      out.push(...vectors);
     }
-    logger.warn("Embedding response shape mismatch; using lexical fallback");
+    return out;
   } catch (err) {
     logger.warn("Embeddings unavailable; using lexical fallback", { error: String(err) });
   }

@@ -1,6 +1,7 @@
 import { env } from "../../config/env.js";
 import { findModel } from "../../config/providers.js";
 import { logger } from "../../shared/logger.js";
+import { styleInstruction, type AnswerStyle } from "../../shared/answerStyle.js";
 import type { FailedResponse, NormalizedResponse } from "../../shared/engine.types.js";
 import { getProvider } from "../ai/provider.registry.js";
 import type { ChatMessage } from "../ai/provider.types.js";
@@ -19,12 +20,19 @@ export interface OrchestrationStreamHandlers {
   onModelError: (failure: FailedResponse) => void;
 }
 
-const SYSTEM_PROMPT: ChatMessage = {
+export interface RunOptions {
+  /** Caller cancellation (e.g. the SSE client disconnected). */
+  signal?: AbortSignal;
+  style?: AnswerStyle;
+}
+
+const systemPrompt = (style?: AnswerStyle): ChatMessage => ({
   role: "system",
   content:
     "You are a helpful, accurate expert assistant. Answer clearly and completely, " +
-    "using markdown structure (headings, lists, code blocks) where helpful.",
-};
+    "using markdown structure (headings, lists, code blocks) where helpful." +
+    styleInstruction(style),
+});
 
 /**
  * Runs a single model, optionally streaming token deltas. Captures latency,
@@ -34,16 +42,24 @@ const runModel = async (
   prompt: string,
   model: string,
   onDelta?: (delta: string) => void,
+  { signal: parentSignal, style }: RunOptions = {},
 ): Promise<NormalizedResponse> => {
   const provider = getProvider();
   const descriptor = findModel(model);
   if (!descriptor) throw new Error(`Unknown model '${model}' (not in catalog)`);
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), env.AI_REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(
+    () => controller.abort(new Error(`Timed out after ${env.AI_REQUEST_TIMEOUT_MS} ms`)),
+    env.AI_REQUEST_TIMEOUT_MS,
+  );
+  // Propagate caller cancellation (e.g. the SSE client disconnected).
+  const onParentAbort = () => controller.abort(new Error("Request cancelled"));
+  if (parentSignal?.aborted) onParentAbort();
+  parentSignal?.addEventListener("abort", onParentAbort, { once: true });
   const startedAt = Date.now();
   try {
-    const messages = [SYSTEM_PROMPT, { role: "user" as const, content: prompt }];
+    const messages = [systemPrompt(style), { role: "user" as const, content: prompt }];
     const res = onDelta
       ? await provider.chatStream({ model, messages, temperature: 0.7, signal: controller.signal }, onDelta)
       : await provider.chat({ model, messages, temperature: 0.7, signal: controller.signal });
@@ -66,8 +82,15 @@ const runModel = async (
       },
       costUsd: Number(costUsd.toFixed(6)),
     };
+  } catch (err) {
+    // Surface the abort reason (timeout / cancelled) instead of a generic "canceled".
+    if (controller.signal.aborted && controller.signal.reason instanceof Error) {
+      throw controller.signal.reason;
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
+    parentSignal?.removeEventListener("abort", onParentAbort);
   }
 };
 
@@ -85,8 +108,9 @@ const toFailure = (model: string, err: unknown): FailedResponse => {
 export const orchestrate = async (
   prompt: string,
   models: string[],
+  options: RunOptions = {},
 ): Promise<OrchestrationOutput> => {
-  const settled = await Promise.allSettled(models.map((m) => runModel(prompt, m)));
+  const settled = await Promise.allSettled(models.map((m) => runModel(prompt, m, undefined, options)));
 
   const responses: NormalizedResponse[] = [];
   const failed: FailedResponse[] = [];
@@ -109,6 +133,7 @@ export const orchestrateStream = async (
   prompt: string,
   models: string[],
   handlers: OrchestrationStreamHandlers,
+  options: RunOptions = {},
 ): Promise<OrchestrationOutput> => {
   const responses: NormalizedResponse[] = [];
   const failed: FailedResponse[] = [];
@@ -116,7 +141,7 @@ export const orchestrateStream = async (
   await Promise.all(
     models.map(async (model) => {
       try {
-        const res = await runModel(prompt, model, (delta) => handlers.onToken(model, delta));
+        const res = await runModel(prompt, model, (delta) => handlers.onToken(model, delta), options);
         if (res.content.trim().length === 0) throw new Error("Empty response");
         responses.push(res);
         handlers.onModelDone(res);
