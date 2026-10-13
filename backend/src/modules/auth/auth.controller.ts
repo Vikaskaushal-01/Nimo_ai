@@ -16,6 +16,15 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+export const updateProfileSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8, "Password must be at least 8 characters").max(128),
+});
+
 export const refreshSchema = z.object({
   refreshToken: z.string().min(1),
 });
@@ -45,6 +54,22 @@ export const logoutHandler = asyncHandler(async (req, res) => {
   if (!parsed.success) throw AppError.badRequest("refreshToken is required");
   await auth.logout(parsed.data.refreshToken);
   ok(res, { loggedOut: true });
+});
+
+export const updateProfileHandler = asyncHandler(async (req, res) => {
+  const { name } = req.body as z.infer<typeof updateProfileSchema>;
+  ok(res, await auth.updateProfile(currentUser(req).sub, name));
+});
+
+export const changePasswordHandler = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body as z.infer<typeof changePasswordSchema>;
+  const result = await auth.changePassword(
+    currentUser(req).sub,
+    currentPassword,
+    newPassword,
+    agent(req.header("user-agent")),
+  );
+  ok(res, result);
 });
 
 export const meHandler = asyncHandler(async (req, res) => {
