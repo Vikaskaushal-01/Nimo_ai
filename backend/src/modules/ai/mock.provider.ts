@@ -44,6 +44,7 @@ export class MockProvider implements IProvider {
     // so the live UI behaves exactly as it will against a real provider.
     const chunks = full.content.match(/\S+\s*/g) ?? [full.content];
     for (const chunk of chunks) {
+      if (req.signal?.aborted) throw new Error("Request cancelled");
       onDelta(chunk);
       await sleep(8);
     }

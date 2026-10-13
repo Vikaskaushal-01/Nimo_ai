@@ -62,7 +62,7 @@ export class OpenRouterProvider implements IProvider {
         },
       };
     } catch (err) {
-      throw this.wrap(err, req.model);
+      throw await this.wrap(err, req.model);
     }
   }
 
@@ -97,17 +97,27 @@ export class OpenRouterProvider implements IProvider {
           if (!line.startsWith("data:")) continue;
           const payload = line.slice(5).trim();
           if (payload === "[DONE]") continue;
+          let json: StreamChunk;
           try {
-            const json = JSON.parse(payload);
-            const delta: string = json?.choices?.[0]?.delta?.content ?? "";
-            if (delta) {
-              content += delta;
-              onDelta(delta);
-            }
-            if (json?.usage) usage = json.usage;
+            json = JSON.parse(payload) as StreamChunk;
           } catch {
-            /* ignore keep-alive comments / partial frames */
+            continue; // ignore keep-alive comments / partial frames
           }
+          // Upstream failures after the 200 arrive as an in-band error frame.
+          if (json.error) {
+            throw AppError.upstream(
+              `OpenRouter [${req.model}] failed: ${json.error.message ?? "stream error"}`,
+            );
+          }
+          const delta = json.choices?.[0]?.delta?.content ?? "";
+          if (delta) {
+            content += delta;
+            onDelta(delta);
+          }
+          if (json.choices?.[0]?.finish_reason === "error") {
+            throw AppError.upstream(`OpenRouter [${req.model}] failed: generation error`);
+          }
+          if (json.usage) usage = json.usage;
         }
       }
 
@@ -123,7 +133,7 @@ export class OpenRouterProvider implements IProvider {
         },
       };
     } catch (err) {
-      throw this.wrap(err, req.model);
+      throw await this.wrap(err, req.model);
     }
   }
 
@@ -139,21 +149,47 @@ export class OpenRouterProvider implements IProvider {
         .map((d: { embedding: number[] }) => d.embedding);
       return { model: req.model, vectors };
     } catch (err) {
-      throw this.wrap(err, req.model);
+      throw await this.wrap(err, req.model);
     }
   }
 
-  private wrap(err: unknown, model: string): AppError {
+  private async wrap(err: unknown, model: string): Promise<AppError> {
+    if (err instanceof AppError) return err;
     if (axios.isAxiosError(err)) {
       const status = err.response?.status;
+      let data: unknown = err.response?.data;
+      // In streaming mode the error body is itself a stream — read it so the
+      // real reason (bad model id, no credits, …) reaches logs and the UI.
+      if (data && typeof (data as NodeJS.ReadableStream).pipe === "function") {
+        data = await readStreamJson(data as NodeJS.ReadableStream);
+      }
       const apiMessage =
-        (err.response?.data as { error?: { message?: string } } | undefined)?.error?.message ??
-        err.message;
+        (data as { error?: { message?: string } } | undefined)?.error?.message ?? err.message;
       return AppError.upstream(`OpenRouter [${model}] failed: ${apiMessage}`, { status });
     }
     return AppError.upstream(`OpenRouter [${model}] failed`, { error: String(err) });
   }
 }
+
+interface StreamChunk {
+  choices?: { delta?: { content?: string }; finish_reason?: string | null }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  error?: { message?: string; code?: number | string };
+}
+
+/** Best-effort read of a small JSON error body from a stream. */
+const readStreamJson = async (stream: NodeJS.ReadableStream): Promise<unknown> => {
+  try {
+    let raw = "";
+    for await (const chunk of stream) {
+      raw += chunk.toString();
+      if (raw.length > 16_384) break;
+    }
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+};
 
 /** Rough token estimate (~4 chars/token) when a provider omits usage. */
 const estimateTokens = (text: string): number => Math.ceil(text.length / 4);
