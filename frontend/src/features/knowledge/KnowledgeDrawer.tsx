@@ -17,6 +17,9 @@ import { useChatStore } from "@/stores/chat.store";
 import { useUiStore } from "@/stores/ui.store";
 import type { KbDocument } from "@/types/knowledge";
 
+/** Mirrors the backend multer limit. */
+const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+
 const fmtSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -26,8 +29,13 @@ const fmtSize = (bytes: number): string => {
 /** Slide-over knowledge base: drag-and-drop upload, document list, selection. */
 export const KnowledgeDrawer = () => {
   const { knowledgeOpen, setKnowledgeOpen } = useUiStore();
-  const { selectedDocumentIds, toggleDocument, useKnowledgeBase, setUseKnowledgeBase } =
-    useChatStore();
+  const {
+    selectedDocumentIds,
+    toggleDocument,
+    removeDocument,
+    useKnowledgeBase,
+    setUseKnowledgeBase,
+  } = useChatStore();
   const qc = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -48,9 +56,11 @@ export const KnowledgeDrawer = () => {
       setError(null);
       setUploadPct(0);
     },
-    onSuccess: () => {
+    onSuccess: (doc) => {
       setUploadPct(null);
-      setUseKnowledgeBase(true);
+      // The upload itself succeeds even when text extraction fails.
+      if (doc.status === "failed") setError(`${doc.filename}: ${doc.error || "processing failed"}`);
+      else setUseKnowledgeBase(true);
       qc.invalidateQueries({ queryKey: ["documents"] });
     },
     onError: (e: Error) => {
@@ -61,11 +71,23 @@ export const KnowledgeDrawer = () => {
 
   const del = useMutation({
     mutationFn: (id: string) => api.deleteDocument(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["documents"] }),
+    onSuccess: (_d, id) => {
+      removeDocument(id);
+      qc.invalidateQueries({ queryKey: ["documents"] });
+    },
+    onError: (e: Error) => setError(e.message),
   });
 
   const onFiles = (files: FileList | null) => {
-    if (files?.[0]) upload.mutate(files[0]);
+    const file = files?.[0];
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setError(`${file.name} is larger than 15 MB.`);
+      return;
+    }
+    upload.mutate(file);
+    // Reset so selecting the same file again still fires onChange.
+    if (inputRef.current) inputRef.current.value = "";
   };
 
   const onDrop = (e: DragEvent) => {

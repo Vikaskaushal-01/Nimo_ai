@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { streamDecision, type StreamDecisionPayload } from "@/lib/stream";
 import type { DecisionResult } from "@/types/engine";
 import type { DecisionStage } from "@/types/stream";
@@ -41,6 +41,9 @@ export const useDecisionStream = (
   const [state, setState] = useState<StreamState>(IDLE);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Cancel any in-flight stream when the owning component unmounts.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
   const reset = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -66,9 +69,14 @@ export const useDecisionStream = (
           models: s.models.map((m) => (m.id === id ? { ...m, ...patch } : m)),
         }));
 
+      // Set once "done" or "error" arrives; a stream that ends without either
+      // was cut off (proxy timeout, server restart) and must not hang the UI.
+      let finished = false;
+
       streamDecision(
         payload,
         (event) => {
+          if (controller.signal.aborted) return;
           switch (event.type) {
             case "start":
               setState((s) => ({
@@ -112,11 +120,13 @@ export const useDecisionStream = (
               }));
               break;
             case "done":
+              finished = true;
               abortRef.current = null;
               setState(IDLE);
               onDone(event.result);
               break;
             case "error":
+              finished = true;
               abortRef.current = null;
               setState(IDLE);
               onError(event.message);
@@ -124,7 +134,14 @@ export const useDecisionStream = (
           }
         },
         controller.signal,
-      ).catch((err: unknown) => {
+      )
+        .then(() => {
+          if (finished || controller.signal.aborted) return;
+          abortRef.current = null;
+          setState(IDLE);
+          onError("The connection was interrupted before the decision finished. Please try again.");
+        })
+        .catch((err: unknown) => {
         if (controller.signal.aborted) return; // user navigated away; ignore
         abortRef.current = null;
         setState(IDLE);

@@ -10,7 +10,7 @@ export const StreamingDecision = ({ state }: { state: StreamState }) => (
   <div className="space-y-4">
     <div className="flex justify-end">
       <div className="flex max-w-[85%] items-start gap-2.5">
-        <div className="glass rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm text-slate-100">
+        <div className="glass whitespace-pre-wrap break-words rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm text-slate-100">
           {state.prompt}
         </div>
         <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10">

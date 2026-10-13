@@ -30,9 +30,13 @@ export const DecisionResultView = ({
   const best = ranking[0];
 
   const copy = async () => {
-    await navigator.clipboard.writeText(optimizedAnswer);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(optimizedAnswer);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable (insecure origin or permission denied) */
+    }
   };
 
   return (
