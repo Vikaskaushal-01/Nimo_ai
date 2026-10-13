@@ -1,19 +1,23 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { LogOut, ShieldCheck } from "lucide-react";
+import { LogOut, Settings, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/Card";
 import { useAuthStore } from "@/stores/auth.store";
+import { useChatStore } from "@/stores/chat.store";
+import { useUiStore } from "@/stores/ui.store";
 
 /** Shows the signed-in user with a logout action. */
 export const UserMenu = () => {
   const qc = useQueryClient();
   const { user, refreshToken, clear } = useAuthStore();
+  const openSettings = useUiStore((s) => s.setSettingsOpen);
   if (!user) return null;
 
   const logout = async () => {
     if (refreshToken) await api.logout(refreshToken).catch(() => undefined);
     clear();
     qc.clear();
+    useChatStore.setState({ conversationId: null, selectedDocumentIds: [] });
   };
 
   const initials = user.name
@@ -39,6 +43,14 @@ export const UserMenu = () => {
         </div>
         <div className="truncate text-[10px] text-slate-500">{user.email}</div>
       </div>
+      <button
+        onClick={() => openSettings(true)}
+        className="shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+        aria-label="Settings"
+        title="Settings"
+      >
+        <Settings size={15} />
+      </button>
       <button
         onClick={logout}
         className="shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-white/10 hover:text-red-300"

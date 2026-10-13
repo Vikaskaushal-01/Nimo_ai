@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Loader2, Lock, Mail, Sparkles, User as UserIcon } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
@@ -6,12 +6,14 @@ import { Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth.store";
+import { useChatStore } from "@/stores/chat.store";
 import type { AuthResult } from "@/types/auth";
 
 type Mode = "login" | "register";
 
 export const AuthPage = () => {
   const { setAuth, isAuthenticated } = useAuthStore();
+  const qc = useQueryClient();
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,7 +25,13 @@ export const AuthPage = () => {
       mode === "login"
         ? api.login(email, password)
         : api.register(email, password, name),
-    onSuccess: (result) => setAuth(result),
+    onSuccess: (result) => {
+      // Never show cached data from a previous account on a shared browser.
+      qc.clear();
+      // Drop the previous account's open chat and document selection too.
+      useChatStore.setState({ conversationId: null, selectedDocumentIds: [] });
+      setAuth(result);
+    },
     onError: (err: Error) => setError(err.message),
   });
 
