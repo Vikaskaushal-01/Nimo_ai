@@ -5,6 +5,18 @@ import type { MetricScores, RankedResponse } from "../../shared/engine.types.js"
 
 const METRIC_KEYS = Object.keys(EVALUATION_WEIGHTS) as MetricKey[];
 
+const ANALYTICS_PROJECTION = Object.fromEntries(
+  [
+    "createdAt",
+    "meta.totalLatencyMs",
+    "meta.fromCache",
+    ...[
+      "model", "label", "vendor", "rank", "score", "confidence",
+      "latencyMs", "tokens", "costUsd", "hallucinationRisk", "metrics",
+    ].map((f) => `ranking.${f}`),
+  ].map((path) => [path, 1]),
+);
+
 /** Per-model rollup exposed to the dashboard. */
 export interface ModelStat {
   model: string;
@@ -117,7 +129,9 @@ export const buildOverview = async (
         conversationId: { $in: conversationIds },
         createdAt: { $gte: from },
       })
-        .select("ranking meta createdAt")
+        // Only the numeric fields aggregated below — skips every response's full
+        // text and any RAG source chunks, which dominate document size.
+        .select(ANALYTICS_PROJECTION)
         .lean()
     : [];
 
@@ -142,7 +156,9 @@ export const buildOverview = async (
 
   for (const msg of messages) {
     const ranking = (msg.ranking ?? []) as RankedResponse[];
-    const meta = (msg.meta ?? {}) as { totalLatencyMs?: number };
+    const meta = (msg.meta ?? {}) as { totalLatencyMs?: number; fromCache?: boolean };
+    // A cache hit replays stored token/cost numbers but spent nothing upstream.
+    const billable = !meta.fromCache;
     const created = msg.createdAt instanceof Date ? msg.createdAt : new Date(msg.createdAt as string);
 
     decisionLatencySum += meta.totalLatencyMs ?? 0;
@@ -155,12 +171,14 @@ export const buildOverview = async (
 
     for (const r of ranking) {
       responseCount += 1;
-      totalTokens += r.tokens?.total ?? 0;
-      totalCost += r.costUsd ?? 0;
+      const tokens = billable ? (r.tokens?.total ?? 0) : 0;
+      const cost = billable ? (r.costUsd ?? 0) : 0;
+      totalTokens += tokens;
+      totalCost += cost;
 
       if (bucket) {
-        bucket.tokens += r.tokens?.total ?? 0;
-        bucket.cost += r.costUsd ?? 0;
+        bucket.tokens += tokens;
+        bucket.cost += cost;
       }
 
       let acc = modelAcc.get(r.model);
@@ -185,8 +203,8 @@ export const buildOverview = async (
       acc.scoreSum += r.score ?? 0;
       acc.confidenceSum += r.confidence ?? 0;
       acc.latencySum += r.latencyMs ?? 0;
-      acc.tokens += r.tokens?.total ?? 0;
-      acc.costUsd += r.costUsd ?? 0;
+      acc.tokens += tokens;
+      acc.costUsd += cost;
       acc.riskSum += r.hallucinationRisk ?? 0;
 
       if (r.metrics) {
