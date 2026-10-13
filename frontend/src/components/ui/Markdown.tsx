@@ -1,9 +1,9 @@
 import { memo } from "react";
 import ReactMarkdown from "react-markdown";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import oneDark from "react-syntax-highlighter/dist/esm/styles/prism/one-dark";
 import remarkGfm from "remark-gfm";
 import { CodeBlock } from "./CodeBlock";
+import { SyntaxHighlighter } from "./prism";
 
 interface MarkdownProps {
   content: string;
@@ -15,6 +15,14 @@ export const Markdown = memo(({ content }: MarkdownProps) => (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
+        // Model output is untrusted: open links in a new tab without opener access.
+        a({ children, href }) {
+          return (
+            <a href={href} target="_blank" rel="noopener noreferrer nofollow">
+              {children}
+            </a>
+          );
+        },
         code({ className, children, ...props }) {
           const match = /language-(\w+)/.exec(className ?? "");
           const text = String(children).replace(/\n$/, "");

@@ -12,9 +12,13 @@ export const CodeBlock = ({ code, language, children }: CodeBlockProps) => {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
-    await navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable (insecure origin or permission denied) */
+    }
   };
 
   const download = () => {
