@@ -14,6 +14,10 @@ import { logger } from "./shared/logger.js";
 
 const app = express();
 
+// Behind a reverse proxy (nginx, PaaS load balancer) this makes req.ip the
+// real client IP so rate limits apply per user, not to the proxy as a whole.
+if (env.TRUST_PROXY > 0) app.set("trust proxy", env.TRUST_PROXY);
+
 // ── Security & parsing middleware ──────────────────────────────────────────
 app.use(helmet());
 app.use(
@@ -53,10 +57,19 @@ const start = async (): Promise<void> => {
       env: env.NODE_ENV,
     });
   });
+  server.on("error", (err) => {
+    logger.error("HTTP server error", { error: String(err) });
+    process.exit(1);
+  });
 
+  let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     logger.info(`Received ${signal}, shutting down gracefully`);
-    server.close();
+    // Force-exit if open connections (e.g. long SSE streams) don't drain in time.
+    setTimeout(() => process.exit(1), 10_000).unref();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
     await Promise.allSettled([disconnectMongo(), disconnectRedis()]);
     process.exit(0);
   };
@@ -64,6 +77,10 @@ const start = async (): Promise<void> => {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
 };
+
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled promise rejection", { error: String(reason) });
+});
 
 start().catch((err) => {
   logger.error("Fatal startup error", { error: String(err) });
