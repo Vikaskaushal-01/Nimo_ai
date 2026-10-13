@@ -13,7 +13,12 @@ import { orchestrateStream } from "../orchestration/orchestrator.service.js";
 import { rankResponses } from "../ranking/ranking.service.js";
 import { persistDecision } from "../chat/chat.service.js";
 import { resolveContext } from "./decision.context.js";
-import { decisionCacheKey, type DecisionInput, type DecisionResponse } from "./decision.service.js";
+import {
+  decisionCacheKey,
+  isRagRequest,
+  type DecisionInput,
+  type DecisionResponse,
+} from "./decision.service.js";
 
 /** Pipeline stages surfaced to the client as progress markers. */
 export type DecisionStage =
@@ -42,7 +47,11 @@ export type Emit = (event: DecisionStreamEvent) => void;
  * stage markers as it evaluates → ranks → fuses, and finally the persisted
  * result. Mirrors `runDecision` but optimized for real-time UX.
  */
-export const runDecisionStream = async (input: DecisionInput, emit: Emit): Promise<void> => {
+export const runDecisionStream = async (
+  input: DecisionInput,
+  emit: Emit,
+  signal?: AbortSignal,
+): Promise<void> => {
   const { prompt, models, ownerId, conversationId } = input;
   const startedAt = Date.now();
 
@@ -55,8 +64,8 @@ export const runDecisionStream = async (input: DecisionInput, emit: Emit): Promi
   });
 
   // ── Cache fast-path: no streaming, return the stored result immediately. ──
-  const key = decisionCacheKey(prompt, models, input.documentIds);
-  const cached = await cacheGet<DecisionResult>(key);
+  const key = decisionCacheKey(input);
+  const cached = key ? await cacheGet<DecisionResult>(key) : null;
   if (cached) {
     logger.info("Decision cache hit (stream)", { models });
     emit({ type: "ranked", ranking: cached.ranking });
@@ -71,8 +80,7 @@ export const runDecisionStream = async (input: DecisionInput, emit: Emit): Promi
   }
 
   // ── 1. Retrieve RAG context (optional) ────────────────────────────────────
-  const ragEnabled = input.useKnowledgeBase || (input.documentIds?.length ?? 0) > 0;
-  if (ragEnabled) emit({ type: "stage", stage: "retrieving" });
+  if (isRagRequest(input)) emit({ type: "stage", stage: "retrieving" });
   const { augmentedPrompt, sources } = await resolveContext({
     ownerId,
     prompt,
@@ -97,7 +105,11 @@ export const runDecisionStream = async (input: DecisionInput, emit: Emit): Promi
       failed.push(f);
       emit({ type: "model_error", model: f.model, label: f.label, error: f.error });
     },
-  });
+  }, { signal, style: input.style });
+
+  // Client went away: don't spend more tokens on evaluation/fusion or persist
+  // a half-finished decision nobody is waiting for.
+  if (signal?.aborted) return;
 
   if (responses.length === 0) {
     emit({ type: "error", message: "All models failed to respond." });
@@ -115,7 +127,8 @@ export const runDecisionStream = async (input: DecisionInput, emit: Emit): Promi
 
   // ── 5. Fuse ───────────────────────────────────────────────────────────────
   emit({ type: "stage", stage: "fusing" });
-  const fusion = await fuseResponses(prompt, ranking);
+  const fusion = await fuseResponses(prompt, ranking, input.style);
+  if (signal?.aborted) return;
 
   const result: DecisionResult = {
     prompt,
@@ -135,7 +148,7 @@ export const runDecisionStream = async (input: DecisionInput, emit: Emit): Promi
 
   // ── 6. Cache + persist ────────────────────────────────────────────────────
   emit({ type: "stage", stage: "saving" });
-  if (ranking.length > 0) await cacheSet(key, result, env.DECISION_CACHE_TTL);
+  if (key) await cacheSet(key, result, env.DECISION_CACHE_TTL);
   const ids = await persistDecision(result, ownerId, conversationId);
 
   emit({ type: "done", result: { ...result, ...ids } });

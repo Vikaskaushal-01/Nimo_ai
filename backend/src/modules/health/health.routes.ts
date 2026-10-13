@@ -10,6 +10,7 @@ healthRouter.get("/health", (_req, res) => {
   const mongo = mongoHealth();
   const redis = redisHealth();
   const status = mongo === "up" ? "ok" : "degraded";
+  // 503 when the database is down so load balancers / orchestrators can react.
   ok(res, {
     status,
     uptimeSeconds: Math.round(process.uptime()),
@@ -19,5 +20,5 @@ healthRouter.get("/health", (_req, res) => {
       aiProvider: useMockProvider ? "mock" : "openrouter",
     },
     timestamp: new Date().toISOString(),
-  });
+  }, mongo === "up" ? 200 : 503);
 });

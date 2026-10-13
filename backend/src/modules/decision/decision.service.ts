@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { env, useMockProvider } from "../../config/env.js";
+import { AppError } from "../../shared/AppError.js";
+import type { AnswerStyle } from "../../shared/answerStyle.js";
 import { cacheGet, cacheSet } from "../../infrastructure/redis.js";
 import { logger } from "../../shared/logger.js";
 import type { DecisionResult } from "../../shared/engine.types.js";
@@ -19,6 +21,8 @@ export interface DecisionInput {
   useKnowledgeBase?: boolean;
   /** Restrict RAG retrieval to these documents (implies useKnowledgeBase). */
   documentIds?: string[];
+  /** Answer length/depth; defaults to "balanced". */
+  style?: AnswerStyle;
 }
 
 export interface DecisionResponse extends DecisionResult {
@@ -26,18 +30,24 @@ export interface DecisionResponse extends DecisionResult {
   messageId: string;
 }
 
-/** Cache key derived from the prompt + model set + RAG scope. */
-export const decisionCacheKey = (
-  prompt: string,
-  models: string[],
-  documentIds: string[] = [],
-): string => {
-  const normalizedModels = [...models].sort().join("|");
-  const normalizedDocs = [...documentIds].sort().join("|");
+/** True when the request asks for knowledge-base (RAG) grounding. */
+export const isRagRequest = (input: Pick<DecisionInput, "useKnowledgeBase" | "documentIds">): boolean =>
+  !!input.useKnowledgeBase || (input.documentIds?.length ?? 0) > 0;
+
+/**
+ * Shared cache key for a plain (non-RAG) decision: prompt + model set.
+ *
+ * Returns null for RAG requests — those answers embed the owner's private
+ * document snippets and depend on the current state of their knowledge base,
+ * so they must never be served from a cache shared across users or uploads.
+ */
+export const decisionCacheKey = (input: DecisionInput): string | null => {
+  if (isRagRequest(input)) return null;
+  const normalizedModels = [...input.models].sort().join("|");
   const hash = createHash("sha256")
-    .update(`${prompt}::${normalizedModels}::${normalizedDocs}`)
+    .update(`${input.prompt}::${normalizedModels}::${input.style ?? "balanced"}`)
     .digest("hex");
-  return `decision:${hash}`;
+  return `decision:v2:${hash}`;
 };
 
 /**
@@ -49,10 +59,10 @@ export const decisionCacheKey = (
 export const runDecision = async (input: DecisionInput): Promise<DecisionResponse> => {
   const { prompt, models, ownerId, conversationId } = input;
   const startedAt = Date.now();
-  const key = decisionCacheKey(prompt, models, input.documentIds);
+  const key = decisionCacheKey(input);
 
   // ── 1. Cache lookup ──────────────────────────────────────────────────────
-  const cached = await cacheGet<DecisionResult>(key);
+  const cached = key ? await cacheGet<DecisionResult>(key) : null;
   if (cached) {
     logger.info("Decision cache hit", { models });
     const result: DecisionResult = {
@@ -72,7 +82,10 @@ export const runDecision = async (input: DecisionInput): Promise<DecisionRespons
   });
 
   // ── 3. Orchestrate (parallel fan-out) ────────────────────────────────────
-  const { responses, failed } = await orchestrate(augmentedPrompt, models);
+  const { responses, failed } = await orchestrate(augmentedPrompt, models, { style: input.style });
+  if (responses.length === 0) {
+    throw AppError.upstream("All models failed to respond.", { failedModels: failed });
+  }
 
   // ── 4. Evaluate every response ───────────────────────────────────────────
   const evaluated = await evaluateResponses(prompt, responses);
@@ -81,7 +94,7 @@ export const runDecision = async (input: DecisionInput): Promise<DecisionRespons
   const ranking = rankResponses(evaluated);
 
   // ── 6. Fuse into one optimized answer ────────────────────────────────────
-  const fusion = await fuseResponses(prompt, ranking);
+  const fusion = await fuseResponses(prompt, ranking, input.style);
 
   const result: DecisionResult = {
     prompt,
@@ -100,9 +113,7 @@ export const runDecision = async (input: DecisionInput): Promise<DecisionRespons
   };
 
   // ── 7. Cache + persist ───────────────────────────────────────────────────
-  if (ranking.length > 0) {
-    await cacheSet(key, result, env.DECISION_CACHE_TTL);
-  }
+  if (key) await cacheSet(key, result, env.DECISION_CACHE_TTL);
   const ids = await persistDecision(result, ownerId, conversationId);
 
   logger.info("Decision complete", {

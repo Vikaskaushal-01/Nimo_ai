@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { MODEL_CATALOG, enabledModels } from "../../config/providers.js";
 import { AppError } from "../../shared/AppError.js";
+import { ANSWER_STYLES } from "../../shared/answerStyle.js";
 import { ok } from "../../shared/ApiResponse.js";
 import { asyncHandler } from "../../shared/asyncHandler.js";
 import { currentUser } from "../../middleware/auth.js";
 import { logger } from "../../shared/logger.js";
+import { assertConversationOwned } from "../chat/chat.service.js";
 import { runDecision } from "./decision.service.js";
 import { runDecisionStream, type DecisionStreamEvent } from "./decision.stream.service.js";
 
@@ -19,27 +21,38 @@ export const decisionSchema = z.object({
   conversationId: z.string().optional(),
   useKnowledgeBase: z.boolean().optional(),
   documentIds: z.array(z.string()).max(50).optional(),
+  style: z.enum(ANSWER_STYLES).optional(),
 });
 
-export const createDecisionHandler = asyncHandler(async (req, res) => {
-  const body = req.body as z.infer<typeof decisionSchema>;
+type DecisionBody = z.infer<typeof decisionSchema>;
 
-  // Reject unknown/disabled models with a clear 400 before doing any work.
+/**
+ * Validates everything that would otherwise only fail AFTER the expensive model
+ * calls: unknown/disabled models and a conversation the caller doesn't own.
+ * Returns the de-duplicated model list.
+ */
+const preflight = async (body: DecisionBody, ownerId: string): Promise<string[]> => {
   const invalid = body.models.filter((m) => !enabledIds.has(m));
   if (invalid.length > 0) {
-    throw AppError.badRequest(`Unknown or disabled model(s): ${invalid.join(", ")}`, {
-      invalid,
-    });
+    throw AppError.badRequest(`Unknown or disabled model(s): ${invalid.join(", ")}`, { invalid });
   }
-  const unique = [...new Set(body.models)];
+  if (body.conversationId) await assertConversationOwned(body.conversationId, ownerId);
+  return [...new Set(body.models)];
+};
+
+export const createDecisionHandler = asyncHandler(async (req, res) => {
+  const body = req.body as DecisionBody;
+  const ownerId = currentUser(req).sub;
+  const unique = await preflight(body, ownerId);
 
   const result = await runDecision({
     prompt: body.prompt,
     models: unique,
-    ownerId: currentUser(req).sub,
+    ownerId,
     conversationId: body.conversationId,
     useKnowledgeBase: body.useKnowledgeBase,
     documentIds: body.documentIds,
+    style: body.style,
   });
 
   ok(res, result, 201, { fromCache: result.meta.fromCache });
@@ -51,13 +64,10 @@ export const createDecisionHandler = asyncHandler(async (req, res) => {
  * EventSource) so the request carries the Bearer token and JSON body.
  */
 export const streamDecisionHandler = asyncHandler(async (req, res) => {
-  const body = req.body as z.infer<typeof decisionSchema>;
-
-  const invalid = body.models.filter((m) => !enabledIds.has(m));
-  if (invalid.length > 0) {
-    throw AppError.badRequest(`Unknown or disabled model(s): ${invalid.join(", ")}`, { invalid });
-  }
-  const unique = [...new Set(body.models)];
+  const body = req.body as DecisionBody;
+  const ownerId = currentUser(req).sub;
+  // Runs before the SSE headers go out, so failures are normal JSON errors.
+  const unique = await preflight(body, ownerId);
 
   // SSE headers.
   res.setHeader("Content-Type", "text/event-stream");
@@ -72,9 +82,15 @@ export const streamDecisionHandler = asyncHandler(async (req, res) => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   };
 
-  // Stop work if the client disconnects mid-stream.
-  req.on("close", () => {
-    closed = true;
+  // Stop work (and the upstream model calls) if the client disconnects.
+  // Listen on the response: the request body was already consumed by the JSON
+  // parser, so the request's own "close" event does not signal a disconnect.
+  const abort = new AbortController();
+  res.on("close", () => {
+    if (!res.writableFinished) {
+      closed = true;
+      abort.abort();
+    }
   });
 
   // Heartbeat comment keeps intermediaries from closing an idle connection.
@@ -87,16 +103,22 @@ export const streamDecisionHandler = asyncHandler(async (req, res) => {
       {
         prompt: body.prompt,
         models: unique,
-        ownerId: currentUser(req).sub,
+        ownerId,
         conversationId: body.conversationId,
         useKnowledgeBase: body.useKnowledgeBase,
         documentIds: body.documentIds,
+        style: body.style,
       },
       send,
+      abort.signal,
     );
   } catch (err) {
-    logger.error("Streaming decision failed", { error: String(err) });
-    send({ type: "error", message: err instanceof Error ? err.message : "Decision failed" });
+    logger.error("Streaming decision failed", { requestId: req.id, error: String(err) });
+    // Only operational errors carry a message that is safe to show the client.
+    send({
+      type: "error",
+      message: err instanceof AppError ? err.message : "Decision failed. Please try again.",
+    });
   } finally {
     clearInterval(heartbeat);
     if (!closed) res.end();
