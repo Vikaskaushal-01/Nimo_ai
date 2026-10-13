@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { env } from "../../config/env.js";
+import { styleInstruction, type AnswerStyle } from "../../shared/answerStyle.js";
 import { logger } from "../../shared/logger.js";
 import type { FusionResult, RankedResponse } from "../../shared/engine.types.js";
 import { getProvider } from "../ai/provider.registry.js";
@@ -28,6 +29,7 @@ const FusionSchema = z.object({
 export const fuseResponses = async (
   prompt: string,
   ranked: RankedResponse[],
+  style?: AnswerStyle,
 ): Promise<FusionResult> => {
   if (ranked.length === 0) {
     return {
@@ -45,7 +47,7 @@ export const fuseResponses = async (
     };
   }
 
-  const messages = buildMessages(prompt, ranked);
+  const messages = buildMessages(prompt, ranked, style);
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
@@ -53,7 +55,9 @@ export const fuseResponses = async (
         model: env.FUSION_MODEL,
         messages,
         temperature: 0.3,
-        json: true,
+        // Retry without strict JSON mode: some models reject `response_format`,
+        // and extractJson() tolerates fenced / prose-wrapped JSON anyway.
+        json: attempt === 1,
       });
       const parsed = FusionSchema.parse(JSON.parse(extractJson(res.content)));
       return parsed;
@@ -71,7 +75,11 @@ export const fuseResponses = async (
   };
 };
 
-const buildMessages = (prompt: string, ranked: RankedResponse[]): ChatMessage[] => {
+const buildMessages = (
+  prompt: string,
+  ranked: RankedResponse[],
+  style?: AnswerStyle,
+): ChatMessage[] => {
   const responsesBlock = ranked
     .map(
       (r, i) =>
@@ -97,7 +105,8 @@ const buildMessages = (prompt: string, ranked: RankedResponse[]): ChatMessage[] 
         "Respond ONLY with a JSON object of shape: " +
         '{"optimizedAnswer": string (markdown), "reasoningSummary": string, ' +
         '"contributionMap": [{"section": string, "models": string[]}]}. ' +
-        `Use these exact model names where relevant: ${modelLabels}.`,
+        `Use these exact model names where relevant: ${modelLabels}.` +
+        styleInstruction(style),
     },
     {
       role: "user",
