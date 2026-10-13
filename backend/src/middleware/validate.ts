@@ -15,14 +15,12 @@ export const validate =
       const parsed = schema.parse(req[source]);
       // Overwrite with the coerced/validated value.
       (req as unknown as Record<Source, unknown>)[source] = parsed;
-      console.log(parsed)
       next();
     } catch (err) {
       if (err instanceof ZodError) {
         next(AppError.unprocessable("Validation failed", err.flatten().fieldErrors));
         return;
       }
-      console.log(err)
       next(err);
     }
   };
