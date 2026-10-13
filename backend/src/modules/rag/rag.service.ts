@@ -2,7 +2,12 @@ import { isValidObjectId } from "mongoose";
 import { AppError } from "../../shared/AppError.js";
 import { logger } from "../../shared/logger.js";
 import type { RetrievedSource } from "../../shared/engine.types.js";
-import { embedOne, embedTexts } from "../embeddings/embeddings.service.js";
+import {
+  EMBED_DIM,
+  embedOne,
+  embedTexts,
+  lexicalVector,
+} from "../embeddings/embeddings.service.js";
 import { Chunk } from "./chunk.model.js";
 import { chunkText } from "./chunking.js";
 import { KbDocument, type DocumentDoc } from "./document.model.js";
@@ -60,10 +65,13 @@ export const ingestDocument = async (input: UploadInput): Promise<DocumentDoc> =
     logger.info("Document ingested", { id: doc.id, chunks: chunks.length });
     return doc;
   } catch (err) {
+    // Drop any chunks written before the failure so they can't be retrieved.
+    await Chunk.deleteMany({ documentId: doc._id }).catch(() => undefined);
     doc.status = "failed";
-    doc.error = err instanceof Error ? err.message : String(err);
+    // Only operational errors (unsupported type, empty file) are user-facing.
+    doc.error = err instanceof AppError ? err.message : "Could not process this file.";
     await doc.save();
-    logger.warn("Document ingestion failed", { id: doc.id, error: doc.error });
+    logger.warn("Document ingestion failed", { id: doc.id, error: String(err) });
     return doc;
   }
 };
@@ -82,8 +90,9 @@ export const getDocument = async (id: string, ownerId: string): Promise<Document
 
 export const deleteDocument = async (id: string, ownerId: string): Promise<void> => {
   await getDocument(id, ownerId);
-  await KbDocument.findByIdAndDelete(id);
+  // Chunks first so a partial failure never leaves retrievable orphans.
   await Chunk.deleteMany({ documentId: id });
+  await KbDocument.findByIdAndDelete(id);
 };
 
 export interface RetrieveOptions {
@@ -109,12 +118,23 @@ export const retrieve = async (
   const chunks = await Chunk.find(filter).limit(2000).lean();
   if (chunks.length === 0) return [];
 
+  // Chunks embedded while the provider was unavailable carry lexical vectors,
+  // whose dimension differs from provider vectors. Score each group against a
+  // query vector from the same space so neither silently scores 0.
   const queryVec = await embedOne(query);
-  const ranked = rankByCosine(
-    queryVec,
-    chunks.map((c) => ({ ...c, embedding: c.embedding as number[] })),
-    topK,
-  );
+  const lexicalQuery = lexicalVector(query);
+  const items = chunks.map((c) => ({ ...c, embedding: c.embedding as number[] }));
+  const sameSpace = items.filter((c) => c.embedding.length === queryVec.length);
+  const lexical =
+    queryVec.length === EMBED_DIM
+      ? []
+      : items.filter((c) => c.embedding.length === EMBED_DIM);
+  const ranked = [
+    ...rankByCosine(queryVec, sameSpace, topK),
+    ...rankByCosine(lexicalQuery, lexical, topK),
+  ]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK);
 
   return ranked
     .filter((r) => r.score > 0)

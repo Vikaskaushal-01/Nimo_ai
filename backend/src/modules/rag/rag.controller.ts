@@ -37,9 +37,11 @@ const toPublicDoc = (d: {
 
 export const uploadHandler = asyncHandler(async (req, res) => {
   if (!req.file) throw AppError.badRequest("No file uploaded (field name: 'file')");
+  // Multipart filenames arrive latin1-decoded; restore UTF-8 (e.g. "résumé.pdf").
+  const filename = Buffer.from(req.file.originalname, "latin1").toString("utf8").slice(0, 300);
   const doc = await rag.ingestDocument({
     ownerId: currentUser(req).sub,
-    filename: req.file.originalname,
+    filename,
     mimeType: req.file.mimetype,
     buffer: req.file.buffer,
   });
