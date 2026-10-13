@@ -10,7 +10,9 @@ import type { KbDocument, SearchHit } from "@/types/knowledge";
 import type { AnalyticsOverview } from "@/types/analytics";
 import { useAuthStore } from "@/stores/auth.store";
 
-const baseURL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api/v1";
+// Same-origin by default: nginx (prod) and the Vite dev server proxy /api to the
+// backend. Set VITE_API_BASE_URL only when the API lives on another origin.
+const baseURL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/+$/, "");
 
 export const http = axios.create({ baseURL, timeout: 120_000 });
 
@@ -98,6 +100,11 @@ export const api = {
 
   me: (): Promise<User> => unwrap(http.get("/auth/me")),
 
+  updateProfile: (name: string): Promise<User> => unwrap(http.patch("/auth/me", { name })),
+
+  changePassword: (currentPassword: string, newPassword: string): Promise<AuthResult> =>
+    unwrap(http.post("/auth/change-password", { currentPassword, newPassword })),
+
   // --- Engine ---
   listModels: (): Promise<ModelInfo[]> => unwrap(http.get("/models")),
 
@@ -110,8 +117,13 @@ export const api = {
   createConversation: (title?: string): Promise<Conversation> =>
     unwrap(http.post("/conversations", title ? { title } : {})),
 
-  renameConversation: (id: string, title: string): Promise<Conversation> =>
-    unwrap(http.patch(`/conversations/${id}`, { title })),
+  updateConversation: (
+    id: string,
+    changes: { title?: string; pinned?: boolean },
+  ): Promise<Conversation> => unwrap(http.patch(`/conversations/${id}`, changes)),
+
+  deleteAllConversations: (): Promise<{ deleted: number }> =>
+    unwrap(http.delete("/conversations")),
 
   deleteConversation: (id: string): Promise<{ deleted: boolean }> =>
     unwrap(http.delete(`/conversations/${id}`)),

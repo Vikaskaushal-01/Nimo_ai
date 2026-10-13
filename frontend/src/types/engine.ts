@@ -80,6 +80,7 @@ export interface Conversation {
   title: string;
   messageCount: number;
   lastModelSet: string[];
+  pinned?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -90,6 +91,8 @@ export interface StoredMessage extends Omit<DecisionResult, "conversationId" | "
   requestedModels: string[];
   createdAt: string;
 }
+
+export type AnswerStyle = "balanced" | "concise" | "detailed";
 
 export const METRIC_LABELS: Record<MetricKey, string> = {
   semanticSimilarity: "Semantic",

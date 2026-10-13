@@ -1,5 +1,6 @@
 import { apiBaseUrl, refreshAccessToken } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth.store";
+import type { AnswerStyle } from "@/types/engine";
 import type { DecisionStreamEvent } from "@/types/stream";
 
 export interface StreamDecisionPayload {
@@ -8,6 +9,7 @@ export interface StreamDecisionPayload {
   conversationId?: string;
   useKnowledgeBase?: boolean;
   documentIds?: string[];
+  style?: AnswerStyle;
 }
 
 /**

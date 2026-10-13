@@ -1,8 +1,13 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthPage } from "@/features/auth/AuthPage";
 import { ProtectedRoute } from "@/features/auth/ProtectedRoute";
 import { ChatPage } from "@/features/chat/ChatPage";
-import { AnalyticsPage } from "@/features/analytics/AnalyticsPage";
+
+// Loaded on first visit so the chart-heavy dashboard stays out of the main bundle.
+const AnalyticsPage = lazy(() =>
+  import("@/features/analytics/AnalyticsPage").then((m) => ({ default: m.AnalyticsPage })),
+);
 
 /** Route table. New top-level pages (dashboard, admin, settings) slot in here. */
 export const AppRoutes = () => (
@@ -20,7 +25,9 @@ export const AppRoutes = () => (
       path="/analytics"
       element={
         <ProtectedRoute>
-          <AnalyticsPage />
+          <Suspense fallback={<div className="min-h-screen" />}>
+            <AnalyticsPage />
+          </Suspense>
         </ProtectedRoute>
       }
     />
