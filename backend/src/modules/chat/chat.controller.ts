@@ -8,9 +8,14 @@ export const createConversationSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
 });
 
-export const renameConversationSchema = z.object({
-  title: z.string().trim().min(1).max(200),
-});
+export const updateConversationSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    pinned: z.boolean().optional(),
+  })
+  .refine((v) => v.title !== undefined || v.pinned !== undefined, {
+    message: "Provide a title or pinned flag",
+  });
 
 export const listConversationsHandler = asyncHandler(async (req, res) => {
   const conversations = await chat.listConversations(currentUser(req).sub);
@@ -28,10 +33,15 @@ export const getConversationHandler = asyncHandler(async (req, res) => {
   ok(res, conversation);
 });
 
-export const renameConversationHandler = asyncHandler(async (req, res) => {
-  const { title } = req.body as z.infer<typeof renameConversationSchema>;
-  const conversation = await chat.renameConversation(req.params.id, currentUser(req).sub, title);
+export const updateConversationHandler = asyncHandler(async (req, res) => {
+  const changes = req.body as z.infer<typeof updateConversationSchema>;
+  const conversation = await chat.updateConversation(req.params.id, currentUser(req).sub, changes);
   ok(res, conversation);
+});
+
+export const deleteAllConversationsHandler = asyncHandler(async (req, res) => {
+  const deleted = await chat.deleteAllConversations(currentUser(req).sub);
+  ok(res, { deleted });
 });
 
 export const deleteConversationHandler = asyncHandler(async (req, res) => {

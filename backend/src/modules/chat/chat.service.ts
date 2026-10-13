@@ -26,8 +26,13 @@ const loadOwned = async (id: string, ownerId: string) => {
   return conv;
 };
 
+/** Throws 400/404 unless `id` is a conversation owned by `ownerId`. */
+export const assertConversationOwned = async (id: string, ownerId: string): Promise<void> => {
+  await loadOwned(id, ownerId);
+};
+
 export const listConversations = async (ownerId: string) => {
-  return Conversation.find({ ownerId }).sort({ updatedAt: -1 }).limit(100).lean();
+  return Conversation.find({ ownerId }).sort({ pinned: -1, updatedAt: -1 }).limit(200).lean();
 };
 
 export const createConversation = async (ownerId: string, title?: string) => {
@@ -39,17 +44,34 @@ export const getConversation = async (id: string, ownerId: string) => {
   return conv.toObject();
 };
 
-export const renameConversation = async (id: string, ownerId: string, title: string) => {
+export const updateConversation = async (
+  id: string,
+  ownerId: string,
+  changes: { title?: string; pinned?: boolean },
+) => {
   const conv = await loadOwned(id, ownerId);
-  conv.title = title.trim();
-  await conv.save();
+  if (changes.title !== undefined) conv.title = changes.title.trim();
+  if (changes.pinned !== undefined) conv.pinned = changes.pinned;
+  // Renaming or pinning should not bump the chat to the top of "recent".
+  await conv.save({ timestamps: false });
   return conv.toObject();
+};
+
+/** Deletes every conversation (and its messages) owned by the user. */
+export const deleteAllConversations = async (ownerId: string): Promise<number> => {
+  const ids = (await Conversation.find({ ownerId }).select("_id").lean()).map((c) => c._id);
+  if (ids.length === 0) return 0;
+  await Message.deleteMany({ conversationId: { $in: ids } });
+  await Conversation.deleteMany({ _id: { $in: ids } });
+  return ids.length;
 };
 
 export const deleteConversation = async (id: string, ownerId: string) => {
   await loadOwned(id, ownerId);
-  await Conversation.findByIdAndDelete(id);
+  // Messages first: if this fails midway the conversation still exists and the
+  // delete can be retried, instead of leaving orphaned messages behind.
   await Message.deleteMany({ conversationId: id });
+  await Conversation.findByIdAndDelete(id);
 };
 
 export const listMessages = async (conversationId: string, ownerId: string) => {

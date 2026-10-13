@@ -11,11 +11,14 @@ const conversationSchema = new Schema(
     ownerId: { type: String, default: null, index: true },
     lastModelSet: { type: [String], default: [] },
     messageCount: { type: Number, default: 0 },
+    /** Pinned conversations are listed first. */
+    pinned: { type: Boolean, default: false },
   },
   { timestamps: true },
 );
 
-conversationSchema.index({ updatedAt: -1 });
+// Serves the sidebar list: an owner's pinned chats first, then most recent.
+conversationSchema.index({ ownerId: 1, pinned: -1, updatedAt: -1 });
 
 export type ConversationDoc = InferSchemaType<typeof conversationSchema>;
 export const Conversation = model("Conversation", conversationSchema);
