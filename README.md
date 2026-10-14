@@ -55,18 +55,24 @@ prompt + selected models
 
 ```bash
 cp .env.example .env
-# (optional) set OPENROUTER_API_KEY in .env — without it, a deterministic
-# MockProvider serves canned responses so everything still runs.
-docker compose up --build
+# Required: set JWT_ACCESS_SECRET and JWT_REFRESH_SECRET (two different values):
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+# Optional: set OPENROUTER_API_KEY — without it, a deterministic MockProvider
+# serves canned responses so everything still runs.
+docker compose up -d --build
 ```
 
-- Frontend: http://localhost:5173
-- API:      http://localhost:4000/api/v1
-- Health:   http://localhost:4000/api/v1/health
+- App:    http://localhost:5173 (set `FRONTEND_PORT` to change)
+- API:    http://localhost:5173/api/v1 (same origin — nginx proxies `/api` to the backend)
+- Health: http://localhost:5173/api/v1/health
+
+Only the frontend port is published; MongoDB, Redis and the backend stay on the
+internal Docker network. The backend refuses to start in production with
+missing/default JWT secrets.
 
 ### Option B — Run services locally
 
-You need MongoDB and Redis reachable (e.g. `docker compose up mongo redis`).
+You need MongoDB and Redis running on localhost (default ports).
 
 ```bash
 # backend
@@ -75,6 +81,48 @@ cd backend && npm install && npm run dev      # http://localhost:4000
 # frontend (separate terminal)
 cd frontend && npm install && npm run dev      # http://localhost:5173
 ```
+
+The Vite dev server proxies `/api` to `http://localhost:4000`, so no CORS setup
+is needed.
+
+---
+
+## Deploying
+
+The Docker images are production-ready (compiled TypeScript, non-root user,
+health checks, nginx with gzip, caching and SSE-friendly proxying).
+
+1. Point a domain at the server and put HTTPS in front of the frontend
+   container (Caddy, Traefik, Cloudflare, or your platform's load balancer).
+2. In `.env` set `OPENROUTER_APP_URL` to your public URL.
+3. If another proxy/load balancer sits in front of the frontend container,
+   set `TRUST_PROXY=2` in `docker-compose.yml` so rate limits see real client IPs.
+4. For managed databases, replace `MONGO_URI` / `REDIS_URL` in
+   `docker-compose.yml` and remove the `mongo` / `redis` services.
+
+Hosting frontend and backend on different domains? Build the frontend with
+`VITE_API_BASE_URL=https://api.example.com/api/v1` and set `CORS_ORIGIN` on the
+backend to the frontend's origin.
+
+---
+
+## Using the app
+
+- **Pick models** with the chips above the prompt box (hover for price and
+  context size) or a one-click preset — **Fast**, **Balanced**, **Best**.
+- **Answer style**: Concise, Balanced or Detailed, applied to every model and the fused answer.
+- **Stop** a running request with the ■ button — your prompt is put back for editing.
+- **Example prompts** on the start screen, **Retry** on failed requests, and
+  **Reuse prompt** (↵ icon next to any past question).
+- **Sidebar**: chats grouped by date, search, pin, rename (pencil or
+  double-click), delete (with confirmation). On phones it opens from the ☰ menu.
+- **Settings** (gear icon): change your name or password (signs out other
+  devices), see keyboard shortcuts, delete all chats.
+- **Shortcuts**: Enter send · Shift+Enter new line · Esc stop · Ctrl+Shift+O new chat.
+- **Export** a whole conversation as Markdown from the top bar.
+- **Knowledge Base**: upload docs (txt, md, csv, json, code, pdf, docx) to
+  ground answers in your own files.
+- **Analytics**: spend, latency and per-model quality over time.
 
 ---
 
@@ -122,6 +170,8 @@ POST /api/v1/auth/login      { email, password }          → { user, accessToke
 POST /api/v1/auth/refresh    { refreshToken }             → rotated tokens
 POST /api/v1/auth/logout     { refreshToken }             → revokes the token
 GET  /api/v1/auth/me         (Bearer access token)        → current user
+PATCH /api/v1/auth/me        { name }                     → updated user
+POST /api/v1/auth/change-password { currentPassword, newPassword } → new tokens (other sessions revoked)
 ```
 
 ## Roadmap (next iterations)
@@ -141,7 +191,7 @@ GET  /api/v1/auth/me         (Bearer access token)        → current user
 ### `POST /api/v1/decision`
 ```jsonc
 // request
-{ "prompt": "Explain CAP theorem", "models": ["openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet"], "conversationId": "optional" }
+{ "prompt": "Explain CAP theorem", "models": ["openai/gpt-4o-mini", "anthropic/claude-sonnet-5.5"], "conversationId": "optional" }
 
 // response (abridged)
 {
@@ -205,4 +255,7 @@ GET /api/v1/analytics/overview?days=30   → { range, totals, metricAverages, mo
 `days` is clamped to 1–365 (default 30).
 
 Other endpoints: `GET /api/v1/models`, `GET /api/v1/health`,
-`GET/POST/DELETE /api/v1/conversations`, `GET /api/v1/conversations/:id/messages`.
+`GET/POST/DELETE /api/v1/conversations` (DELETE without an id removes all of the
+user's chats), `PATCH /api/v1/conversations/:id { title?, pinned? }`,
+`GET /api/v1/conversations/:id/messages`. Decision requests also accept
+`style: "concise" | "balanced" | "detailed"`.
