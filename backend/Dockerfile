@@ -1,19 +1,30 @@
-# ── Backend image (runs via tsx; no separate build step needed for iteration 1) ──
-FROM node:20-alpine
-
+# ── Build stage: compile TypeScript → dist/ ──────────────────────────────────
+FROM node:24-alpine AS build
 WORKDIR /app
 
-# Install deps first for better layer caching
-COPY package.json package-lock.json* ./
-RUN npm install --no-audit --no-fund
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
-# Copy source
 COPY tsconfig.json ./
 COPY src ./src
+RUN npm run build
 
-ENV NODE_ENV=production
-ENV BACKEND_PORT=4000
+# ── Runtime stage: production deps + compiled JS only ───────────────────────
+FROM node:24-alpine
+WORKDIR /app
+ENV NODE_ENV=production \
+    BACKEND_PORT=4000
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
+
+COPY --from=build /app/dist ./dist
+
+# Run as the unprivileged user that ships with the official image.
+USER node
 EXPOSE 4000
 
-# Typecheck happens in CI; runtime uses tsx so ESM resolution "just works".
-CMD ["npx", "tsx", "src/server.ts"]
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
+  CMD wget -qO- http://127.0.0.1:4000/api/v1/health > /dev/null || exit 1
+
+CMD ["node", "dist/server.js"]

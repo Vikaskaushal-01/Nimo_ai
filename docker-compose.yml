@@ -1,10 +1,17 @@
+# Production-style stack: one public port (the frontend), which serves the SPA
+# and reverse-proxies /api to the backend. MongoDB, Redis and the backend are
+# reachable only on the internal compose network.
+#
+#   docker compose up -d --build     →  http://localhost:${FRONTEND_PORT:-5173}
+#
+# Requires strong JWT_ACCESS_SECRET / JWT_REFRESH_SECRET in .env (the backend
+# refuses to start in production with the dev defaults).
+
 services:
   mongo:
     image: mongo:7
     container_name: mai_mongo
     restart: unless-stopped
-    ports:
-      - "27017:27017"
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -17,10 +24,8 @@ services:
     image: redis:7-alpine
     container_name: mai_redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
+    # Pure cache: bounded memory, evict least-recently-used keys, no persistence.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -36,12 +41,13 @@ services:
     env_file:
       - .env
     environment:
-      # Override hostnames so the container reaches the compose services
+      NODE_ENV: production
+      # Compose-internal hostnames override the localhost values in .env.
       MONGO_URI: mongodb://mongo:27017/multi_ai
       REDIS_URL: redis://redis:6379
       BACKEND_PORT: 4000
-    ports:
-      - "${BACKEND_PORT:-4000}:4000"
+      # Requests arrive through the frontend's nginx proxy.
+      TRUST_PROXY: 1
     depends_on:
       mongo:
         condition: service_healthy
@@ -52,15 +58,15 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        VITE_API_BASE_URL: http://localhost:${BACKEND_PORT:-4000}/api/v1
     container_name: mai_frontend
     restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:4000
     ports:
       - "${FRONTEND_PORT:-5173}:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   mongo_data:
-  redis_data:

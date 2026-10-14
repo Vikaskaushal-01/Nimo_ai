@@ -1,0 +1,7 @@
+# Normalize to LF everywhere so files built into Linux containers (nginx.conf,
+# Dockerfiles, scripts) never pick up Windows CRLF line endings.
+* text=auto eol=lf
+
+*.svg text eol=lf
+*.png binary
+*.ico binary
