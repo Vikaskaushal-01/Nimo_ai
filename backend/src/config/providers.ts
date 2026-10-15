@@ -152,6 +152,14 @@ export const MODEL_CATALOG: ModelDescriptor[] = [
     contextWindow: 1_000_000,
     enabled: true,
   },
+  {
+    id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    label: "Nemotron 3 Nano Reasoning",
+    vendor: "NVIDIA",
+    pricing: { promptPer1k: 0, completionPer1k: 0 },
+    contextWindow: 256_000,
+    enabled: true,
+  },
 ];
 
 export const enabledModels = (): ModelDescriptor[] =>
