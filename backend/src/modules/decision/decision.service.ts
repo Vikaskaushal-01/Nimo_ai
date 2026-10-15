@@ -5,6 +5,7 @@ import type { AnswerStyle } from "../../shared/answerStyle.js";
 import { cacheGet, cacheSet } from "../../infrastructure/redis.js";
 import { logger } from "../../shared/logger.js";
 import type { DecisionResult } from "../../shared/engine.types.js";
+import type { PromptContext } from "../../shared/promptContext.js";
 import { evaluateResponses } from "../evaluation/evaluation.service.js";
 import { fuseResponses } from "../fusion/fusion.service.js";
 import { orchestrate } from "../orchestration/orchestrator.service.js";
@@ -12,7 +13,7 @@ import { rankResponses } from "../ranking/ranking.service.js";
 import { persistDecision } from "../chat/chat.service.js";
 import { resolveContext } from "./decision.context.js";
 
-export interface DecisionInput {
+export interface DecisionInput extends PromptContext {
   prompt: string;
   models: string[];
   ownerId: string;
@@ -23,6 +24,8 @@ export interface DecisionInput {
   documentIds?: string[];
   /** Answer length/depth; defaults to "balanced". */
   style?: AnswerStyle;
+  /** Skip the cache read so the user gets a fresh answer. */
+  regenerate?: boolean;
 }
 
 export interface DecisionResponse extends DecisionResult {
@@ -35,7 +38,8 @@ export const isRagRequest = (input: Pick<DecisionInput, "useKnowledgeBase" | "do
   !!input.useKnowledgeBase || (input.documentIds?.length ?? 0) > 0;
 
 /**
- * Shared cache key for a plain (non-RAG) decision: prompt + model set.
+ * Shared cache key for a plain (non-RAG) decision: prompt + model set + style,
+ * plus the conversation history and custom instructions that shape the answer.
  *
  * Returns null for RAG requests — those answers embed the owner's private
  * document snippets and depend on the current state of their knowledge base,
@@ -46,8 +50,9 @@ export const decisionCacheKey = (input: DecisionInput): string | null => {
   const normalizedModels = [...input.models].sort().join("|");
   const hash = createHash("sha256")
     .update(`${input.prompt}::${normalizedModels}::${input.style ?? "balanced"}`)
+    .update(`::${JSON.stringify(input.history ?? [])}::${input.instructions ?? ""}`)
     .digest("hex");
-  return `decision:v2:${hash}`;
+  return `decision:v3:${hash}`;
 };
 
 /**
@@ -62,7 +67,7 @@ export const runDecision = async (input: DecisionInput): Promise<DecisionRespons
   const key = decisionCacheKey(input);
 
   // ── 1. Cache lookup ──────────────────────────────────────────────────────
-  const cached = key ? await cacheGet<DecisionResult>(key) : null;
+  const cached = key && !input.regenerate ? await cacheGet<DecisionResult>(key) : null;
   if (cached) {
     logger.info("Decision cache hit", { models });
     const result: DecisionResult = {
@@ -82,7 +87,11 @@ export const runDecision = async (input: DecisionInput): Promise<DecisionRespons
   });
 
   // ── 3. Orchestrate (parallel fan-out) ────────────────────────────────────
-  const { responses, failed } = await orchestrate(augmentedPrompt, models, { style: input.style });
+  const context = { history: input.history, instructions: input.instructions };
+  const { responses, failed } = await orchestrate(augmentedPrompt, models, {
+    style: input.style,
+    ...context,
+  });
   if (responses.length === 0) {
     throw AppError.upstream("All models failed to respond.", { failedModels: failed });
   }
@@ -94,13 +103,14 @@ export const runDecision = async (input: DecisionInput): Promise<DecisionRespons
   const ranking = rankResponses(evaluated);
 
   // ── 6. Fuse into one optimized answer ────────────────────────────────────
-  const fusion = await fuseResponses(prompt, ranking, input.style);
+  const fusion = await fuseResponses(prompt, ranking, input.style, context);
 
   const result: DecisionResult = {
     prompt,
     optimizedAnswer: fusion.optimizedAnswer,
     reasoningSummary: fusion.reasoningSummary,
     contributionMap: fusion.contributionMap,
+    followUps: fusion.followUps,
     ranking,
     meta: {
       totalLatencyMs: Date.now() - startedAt,
