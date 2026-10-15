@@ -136,6 +136,14 @@ export const MODEL_CATALOG: ModelDescriptor[] = [
     contextWindow: 262_144,
     enabled: true,
   },
+  {
+    id: "dots-studio/dots-3-note-preview:free",
+    label: "dots.3 Note",
+    vendor: "Dots",
+    pricing: { promptPer1k: 0, completionPer1k: 0 },
+    contextWindow: 512_000,
+    enabled: true,
+  },
 ];
 
 export const enabledModels = (): ModelDescriptor[] =>
