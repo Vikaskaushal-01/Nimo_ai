@@ -3,9 +3,9 @@ import { persist } from "zustand/middleware";
 import type { AnswerStyle } from "@/types/engine";
 
 const DEFAULT_MODELS = [
-  "openai/gpt-4o-mini",
-  "anthropic/claude-sonnet-5.5",
-  "google/gemini-3.8-flash",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "google/gemma-4-31b-it:free",
 ];
 
 interface ChatState {
