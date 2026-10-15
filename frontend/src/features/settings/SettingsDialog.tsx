@@ -1,6 +1,6 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { Keyboard, Loader2, Lock, Trash2, User as UserIcon, X } from "lucide-react";
+import { Keyboard, Loader2, Lock, Sparkles, Trash2, User as UserIcon, X } from "lucide-react";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { api } from "@/lib/api";
@@ -54,6 +54,7 @@ export const SettingsDialog = () => {
             </header>
             <div className="space-y-6 px-5 py-5">
               <ProfileSection />
+              <InstructionsSection />
               <PasswordSection />
               <ShortcutsSection />
               <DataSection onDone={close} />
@@ -115,6 +116,54 @@ const ProfileSection = () => {
           </Button>
         </div>
       </form>
+    </Section>
+  );
+};
+
+const MAX_INSTRUCTIONS = 2000;
+
+/** Custom instructions applied to every answer, like ChatGPT/Claude/Gemini. */
+const InstructionsSection = () => {
+  const { user, setUser } = useAuthStore();
+  // Fetch fresh: the cached user may predate this setting.
+  const { data: me } = useQuery({ queryKey: ["me"], queryFn: api.me });
+  const saved = me?.customInstructions ?? user?.customInstructions ?? "";
+  const [text, setText] = useState(saved);
+  useEffect(() => setText(saved), [saved]);
+
+  const save = useMutation({
+    mutationFn: () => api.updateProfile({ customInstructions: text.trim() }),
+    onSuccess: (u) => {
+      setUser(u);
+      toast(u.customInstructions ? "Custom instructions saved" : "Custom instructions cleared");
+    },
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
+  const dirty = text.trim() !== saved.trim();
+
+  return (
+    <Section icon={<Sparkles size={13} />} title="Custom instructions">
+      <p className="mb-2 text-[11px] text-slate-500">
+        What should every model know about you, and how should it respond? Applied to all new answers.
+      </p>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        maxLength={MAX_INSTRUCTIONS}
+        rows={5}
+        placeholder={"e.g. I'm a computer science student. Explain simply with examples.\nUse Python for code. Answer in English."}
+        aria-label="Custom instructions"
+        className={`${inputCls} resize-y`}
+      />
+      <div className="mt-2 flex items-center justify-between">
+        <span className="text-[11px] tabular-nums text-slate-600">
+          {text.length} / {MAX_INSTRUCTIONS}
+        </span>
+        <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending || !dirty}>
+          {save.isPending && <Loader2 size={13} className="animate-spin" />} Save
+        </Button>
+      </div>
     </Section>
   );
 };
