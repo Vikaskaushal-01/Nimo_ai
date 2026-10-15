@@ -160,6 +160,14 @@ export const MODEL_CATALOG: ModelDescriptor[] = [
     contextWindow: 256_000,
     enabled: true,
   },
+  {
+    id: "liquid/lfm-2.5-2.6b:free",
+    label: "LFM 2.5 2.6B",
+    vendor: "Liquid",
+    pricing: { promptPer1k: 0, completionPer1k: 0 },
+    contextWindow: 65_536,
+    enabled: true,
+  },
 ];
 
 export const enabledModels = (): ModelDescriptor[] =>
