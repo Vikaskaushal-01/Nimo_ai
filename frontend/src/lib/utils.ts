@@ -27,6 +27,7 @@ export const vendorColor = (vendor: string): string => {
     Meta: "#0668e1",
     Qwen: "#a855f7",
     Mistral: "#ff7000",
+    NVIDIA: "#76b900",
   };
   return map[vendor] ?? "#9d86ff";
 };
