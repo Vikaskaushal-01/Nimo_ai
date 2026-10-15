@@ -128,6 +128,14 @@ export const MODEL_CATALOG: ModelDescriptor[] = [
     contextWindow: 262_144,
     enabled: true,
   },
+  {
+    id: "google/gemma-4-26b-a4b-it:free",
+    label: "Gemma 4 26B",
+    vendor: "Google",
+    pricing: { promptPer1k: 0, completionPer1k: 0 },
+    contextWindow: 262_144,
+    enabled: true,
+  },
 ];
 
 export const enabledModels = (): ModelDescriptor[] =>
