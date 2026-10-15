@@ -24,7 +24,7 @@ const EnvSchema = z.object({
   OPENROUTER_APP_TITLE: z.string().default("Multi-AI Decision Engine"),
 
   FUSION_MODEL: z.string().default("nvidia/nemotron-3-ultra-550b-a55b:free"),
-  EMBEDDING_MODEL: z.string().default("openai/text-embedding-3-small"),
+  EMBEDDING_MODEL: z.string().default("nvidia/nemotron-3-embed-1b:free"),
 
   // --- Auth ---
   JWT_ACCESS_SECRET: z.string().min(16).default("dev-access-secret-change-me-please"),
