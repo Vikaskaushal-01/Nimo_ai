@@ -2,6 +2,7 @@ import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 import type {
   Conversation,
   DecisionResult,
+  Feedback,
   ModelInfo,
   StoredMessage,
 } from "@/types/engine";
@@ -100,7 +101,8 @@ export const api = {
 
   me: (): Promise<User> => unwrap(http.get("/auth/me")),
 
-  updateProfile: (name: string): Promise<User> => unwrap(http.patch("/auth/me", { name })),
+  updateProfile: (changes: { name?: string; customInstructions?: string }): Promise<User> =>
+    unwrap(http.patch("/auth/me", changes)),
 
   changePassword: (currentPassword: string, newPassword: string): Promise<AuthResult> =>
     unwrap(http.post("/auth/change-password", { currentPassword, newPassword })),
@@ -130,6 +132,15 @@ export const api = {
 
   listMessages: (conversationId: string): Promise<StoredMessage[]> =>
     unwrap(http.get(`/conversations/${conversationId}/messages`)),
+
+  /** Deletes a message and every later one (edit / regenerate). */
+  deleteMessagesFrom: (conversationId: string, messageId: string): Promise<{ deleted: number }> =>
+    unwrap(http.delete(`/conversations/${conversationId}/messages/${messageId}`)),
+
+  setFeedback: (conversationId: string, messageId: string, feedback: Feedback) =>
+    unwrap<{ id: string; feedback: Feedback }>(
+      http.patch(`/conversations/${conversationId}/messages/${messageId}`, { feedback }),
+    ),
 
   // --- Knowledge base ---
   listDocuments: (): Promise<KbDocument[]> => unwrap(http.get("/knowledge/documents")),

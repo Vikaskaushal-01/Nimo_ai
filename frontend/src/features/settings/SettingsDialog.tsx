@@ -79,7 +79,7 @@ const ProfileSection = () => {
   const [name, setName] = useState(user?.name ?? "");
 
   const save = useMutation({
-    mutationFn: () => api.updateProfile(name.trim()),
+    mutationFn: () => api.updateProfile({ name: name.trim() }),
     onSuccess: (u) => {
       setUser(u);
       toast("Name updated");

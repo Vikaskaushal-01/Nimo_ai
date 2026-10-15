@@ -10,6 +10,8 @@ export interface StreamDecisionPayload {
   useKnowledgeBase?: boolean;
   documentIds?: string[];
   style?: AnswerStyle;
+  /** Bypass the server cache for a fresh answer. */
+  regenerate?: boolean;
 }
 
 /**
