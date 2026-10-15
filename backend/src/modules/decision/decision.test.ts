@@ -30,6 +30,20 @@ describe("decisionCacheKey", () => {
     );
   });
 
+  it("separates conversations and custom instructions that shape the answer", () => {
+    const k = decisionCacheKey(base);
+    expect(decisionCacheKey({ ...base, history: [], instructions: "" })).toBe(k);
+    const followUp = decisionCacheKey({
+      ...base,
+      history: [
+        { role: "user", content: "Explain ACID" },
+        { role: "assistant", content: "ACID stands for…" },
+      ],
+    });
+    expect(followUp).not.toBe(k);
+    expect(decisionCacheKey({ ...base, instructions: "Answer like a pirate" })).not.toBe(k);
+  });
+
   it("never caches knowledge-base requests (private, per-user context)", () => {
     expect(decisionCacheKey({ ...base, useKnowledgeBase: true })).toBeNull();
     expect(decisionCacheKey({ ...base, documentIds: ["65f000000000000000000001"] })).toBeNull();
