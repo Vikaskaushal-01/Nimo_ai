@@ -16,8 +16,8 @@ const PRESETS: { label: string; hint: string; models: string[] }[] = [
   },
   {
     label: "Balanced",
-    hint: "Good quality at a moderate cost",
-    models: ["openai/gpt-4o-mini", "anthropic/claude-sonnet-5.5", "google/gemini-3.8-flash"],
+    hint: "Strong free models from different vendors",
+    models: ["nvidia/nemotron-3-ultra-550b-a55b:free", "google/gemma-4-31b-it:free", "dots-studio/dots-3-note-preview:free"],
   },
   {
     label: "Best",
