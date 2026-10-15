@@ -21,8 +21,8 @@ const PRESETS: { label: string; hint: string; models: string[] }[] = [
   },
   {
     label: "Best",
-    hint: "Strongest models — slower and pricier",
-    models: ["openai/gpt-4o", "anthropic/claude-sonnet-5.5", "google/gemini-3.8-flash", "mistralai/mistral-large"],
+    hint: "Strongest free models — slower",
+    models: ["nvidia/nemotron-3-ultra-550b-a55b:free", "nvidia/nemotron-3-super-120b-a12b:free", "google/gemma-4-31b-it:free", "dots-studio/dots-3-note-preview:free"],
   },
 ];
 
