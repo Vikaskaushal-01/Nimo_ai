@@ -11,8 +11,8 @@ import { Skeleton } from "@/components/ui/Skeleton";
 const PRESETS: { label: string; hint: string; models: string[] }[] = [
   {
     label: "Fast",
-    hint: "Cheapest, quickest models",
-    models: ["openai/gpt-4o-mini", "anthropic/claude-haiku-5.5", "deepseek/deepseek-chat"],
+    hint: "Quickest free models",
+    models: ["liquid/lfm-2.5-2.6b:free", "nvidia/nemotron-3.5-lightning:free", "nvidia/nemotron-3-super-120b-a12b:free"],
   },
   {
     label: "Balanced",
