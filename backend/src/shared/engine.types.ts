@@ -54,6 +54,8 @@ export interface FusionResult {
   optimizedAnswer: string;
   reasoningSummary: string;
   contributionMap: ContributionEntry[];
+  /** Short follow-up questions the user might ask next. */
+  followUps: string[];
 }
 
 /** A knowledge-base chunk retrieved for RAG context injection. */
@@ -75,6 +77,8 @@ export interface DecisionResult {
   optimizedAnswer: string;
   reasoningSummary: string;
   contributionMap: ContributionEntry[];
+  /** Suggested next questions (absent on results cached before this field existed). */
+  followUps?: string[];
   ranking: RankedResponse[];
   meta: {
     totalLatencyMs: number;

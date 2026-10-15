@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { env } from "../../config/env.js";
 import { styleInstruction, type AnswerStyle } from "../../shared/answerStyle.js";
+import { instructionsBlock, type PromptContext } from "../../shared/promptContext.js";
 import { logger } from "../../shared/logger.js";
 import type { FusionResult, RankedResponse } from "../../shared/engine.types.js";
 import { getProvider } from "../ai/provider.registry.js";
@@ -17,6 +18,11 @@ const FusionSchema = z.object({
       }),
     )
     .default([]),
+  followUps: z
+    .array(z.string())
+    .default([])
+    // Small models sometimes pad or over-deliver; keep a few short, non-empty ones.
+    .transform((qs) => qs.map((q) => q.trim()).filter((q) => q.length > 0 && q.length <= 200).slice(0, 3)),
 });
 
 /**
@@ -30,12 +36,14 @@ export const fuseResponses = async (
   prompt: string,
   ranked: RankedResponse[],
   style?: AnswerStyle,
+  context: PromptContext = {},
 ): Promise<FusionResult> => {
   if (ranked.length === 0) {
     return {
       optimizedAnswer: "No model produced a usable response.",
       reasoningSummary: "All providers failed or returned empty output.",
       contributionMap: [],
+      followUps: [],
     };
   }
 
@@ -44,10 +52,11 @@ export const fuseResponses = async (
       optimizedAnswer: ranked[0].content,
       reasoningSummary: `Only ${ranked[0].label} responded, so its answer is returned unchanged.`,
       contributionMap: [{ section: "Full answer", models: [ranked[0].label] }],
+      followUps: [],
     };
   }
 
-  const messages = buildMessages(prompt, ranked, style);
+  const messages = buildMessages(prompt, ranked, style, context);
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
@@ -72,6 +81,7 @@ export const fuseResponses = async (
     optimizedAnswer: ranked[0].content,
     reasoningSummary: `Automated fusion was unavailable; returning the highest-scoring response (${ranked[0].label}, score ${ranked[0].score}).`,
     contributionMap: [{ section: "Full answer", models: [ranked[0].label] }],
+    followUps: [],
   };
 };
 
@@ -79,6 +89,7 @@ const buildMessages = (
   prompt: string,
   ranked: RankedResponse[],
   style?: AnswerStyle,
+  { history = [], instructions }: PromptContext = {},
 ): ChatMessage[] => {
   const responsesBlock = ranked
     .map(
@@ -104,16 +115,31 @@ const buildMessages = (
         "Attribute each major section to the models that contributed to it. " +
         "Respond ONLY with a JSON object of shape: " +
         '{"optimizedAnswer": string (markdown), "reasoningSummary": string, ' +
-        '"contributionMap": [{"section": string, "models": string[]}]}. ' +
+        '"contributionMap": [{"section": string, "models": string[]}], ' +
+        '"followUps": string[] (exactly 3 short, natural follow-up questions the user ' +
+        "might ask next, written from the user's point of view)}. " +
         `Use these exact model names where relevant: ${modelLabels}.` +
-        styleInstruction(style),
+        styleInstruction(style) +
+        instructionsBlock(instructions),
     },
     {
       role: "user",
-      content: `Original prompt:\n"""${prompt}"""\n\nCandidate responses:\n\n${responsesBlock}\n\nReturn the JSON now.`,
+      content: `${historyBlock(history)}Original prompt:\n"""${prompt}"""\n\nCandidate responses:\n\n${responsesBlock}\n\nReturn the JSON now.`,
     },
   ];
 };
+
+/** Earlier turns, so follow-ups like "make it shorter" are fused in context. */
+const historyBlock = (history: ChatMessage[]): string => {
+  if (history.length === 0) return "";
+  const turns = history
+    .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${clip(m.content, 1_500)}`)
+    .join("\n\n");
+  return `Conversation so far (for context only):\n"""\n${turns}\n"""\n\n`;
+};
+
+const clip = (text: string, max: number): string =>
+  text.length <= max ? text : `${text.slice(0, max)}…`;
 
 /** Tolerates models that wrap JSON in prose or code fences. */
 const extractJson = (text: string): string => {
