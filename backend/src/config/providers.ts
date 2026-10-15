@@ -144,6 +144,14 @@ export const MODEL_CATALOG: ModelDescriptor[] = [
     contextWindow: 512_000,
     enabled: true,
   },
+  {
+    id: "nvidia/nemotron-3.5-lightning:free",
+    label: "Nemotron 3.5 Lightning",
+    vendor: "NVIDIA",
+    pricing: { promptPer1k: 0, completionPer1k: 0 },
+    contextWindow: 1_000_000,
+    enabled: true,
+  },
 ];
 
 export const enabledModels = (): ModelDescriptor[] =>
