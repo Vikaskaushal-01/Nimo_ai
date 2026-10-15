@@ -22,6 +22,9 @@ const messageSchema = new Schema(
     contributionMap: { type: Schema.Types.Mixed, default: [] },
     ranking: { type: Schema.Types.Mixed, default: [] },
     meta: { type: Schema.Types.Mixed, default: {} },
+    followUps: { type: [String], default: [] },
+    /** The user's thumbs up/down on the fused answer. */
+    feedback: { type: String, enum: ["up", "down", null], default: null },
   },
   { timestamps: true },
 );

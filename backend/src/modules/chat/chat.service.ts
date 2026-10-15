@@ -79,6 +79,48 @@ export const listMessages = async (conversationId: string, ownerId: string) => {
   return Message.find({ conversationId }).sort({ createdAt: 1 }).lean();
 };
 
+/** Loads a message of an owned conversation, or 404s. */
+const loadOwnedMessage = async (conversationId: string, messageId: string, ownerId: string) => {
+  await loadOwned(conversationId, ownerId);
+  ensureId(messageId);
+  const message = await Message.findOne({ _id: messageId, conversationId });
+  if (!message) throw AppError.notFound("Message not found");
+  return message;
+};
+
+/**
+ * Deletes a message and everything after it in the conversation. Used to edit
+ * a prompt or regenerate an answer: the thread is cut back to that point and
+ * the new turn is sent in its place, keeping the conversation history linear.
+ */
+export const deleteMessagesFrom = async (
+  conversationId: string,
+  messageId: string,
+  ownerId: string,
+): Promise<number> => {
+  const message = await loadOwnedMessage(conversationId, messageId, ownerId);
+  const { deletedCount } = await Message.deleteMany({
+    conversationId,
+    createdAt: { $gte: message.createdAt },
+  });
+  const remaining = await Message.countDocuments({ conversationId });
+  await Conversation.findByIdAndUpdate(conversationId, { $set: { messageCount: remaining } });
+  return deletedCount;
+};
+
+/** Records (or clears, with null) the user's thumbs up/down on an answer. */
+export const setMessageFeedback = async (
+  conversationId: string,
+  messageId: string,
+  ownerId: string,
+  feedback: "up" | "down" | null,
+) => {
+  const message = await loadOwnedMessage(conversationId, messageId, ownerId);
+  message.feedback = feedback;
+  await message.save({ timestamps: false });
+  return { id: message._id.toString(), feedback };
+};
+
 /**
  * Persists a completed decision as a message owned by `ownerId`, creating the
  * conversation if needed and keeping its metadata in sync.
@@ -109,6 +151,7 @@ export const persistDecision = async (
     optimizedAnswer: result.optimizedAnswer,
     reasoningSummary: result.reasoningSummary,
     contributionMap: result.contributionMap,
+    followUps: result.followUps ?? [],
     ranking: result.ranking,
     meta: result.meta,
   });
