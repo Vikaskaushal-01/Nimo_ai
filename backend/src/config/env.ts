@@ -23,7 +23,7 @@ const EnvSchema = z.object({
   OPENROUTER_APP_URL: z.string().default("http://localhost:5173"),
   OPENROUTER_APP_TITLE: z.string().default("Multi-AI Decision Engine"),
 
-  FUSION_MODEL: z.string().default("openai/gpt-4o-mini"),
+  FUSION_MODEL: z.string().default("nvidia/nemotron-3-ultra-550b-a55b:free"),
   EMBEDDING_MODEL: z.string().default("openai/text-embedding-3-small"),
 
   // --- Auth ---
