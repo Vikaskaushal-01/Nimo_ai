@@ -1,7 +1,11 @@
-import { ArrowUp, Library, Square } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ArrowUp, Library, Loader2, Mic, Paperclip, Square } from "lucide-react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/Button";
+import { api } from "@/lib/api";
+import { useDictation } from "@/lib/speech";
 import { cn } from "@/lib/utils";
+import { toast } from "@/stores/toast.store";
 import { useChatStore } from "@/stores/chat.store";
 import { useUiStore } from "@/stores/ui.store";
 import type { AnswerStyle } from "@/types/engine";
@@ -16,6 +20,10 @@ const STYLES: { value: AnswerStyle; label: string; hint: string }[] = [
 /** Mirrors the backend prompt limit. */
 const MAX_PROMPT_CHARS = 20_000;
 
+/** File types the knowledge base can parse (kept in sync with KnowledgeDrawer). */
+const ATTACH_ACCEPT =
+  ".txt,.md,.markdown,.csv,.json,.pdf,.docx,.js,.ts,.tsx,.py,.java,.go,.rs,.sql,.yaml,.yml,.html,.css";
+
 interface PromptInputProps {
   onSubmit: (prompt: string) => void;
   /** Cancels the in-flight decision. */
@@ -27,8 +35,46 @@ interface PromptInputProps {
 export const PromptInput = ({ onSubmit, onStop, isPending }: PromptInputProps) => {
   const [value, setValue] = useState("");
   const selectedModels = useChatStore((s) => s.selectedModels);
-  const { useKnowledgeBase, disableKnowledgeBase, selectedDocumentIds, answerStyle, setAnswerStyle } =
-    useChatStore();
+  const {
+    useKnowledgeBase,
+    disableKnowledgeBase,
+    selectedDocumentIds,
+    toggleDocument,
+    answerStyle,
+    setAnswerStyle,
+  } = useChatStore();
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // 📎 Attach: index the file into the knowledge base and scope this chat to it.
+  const attach = useMutation({
+    mutationFn: (file: File) => api.uploadDocument(file),
+    onSuccess: (doc) => {
+      qc.invalidateQueries({ queryKey: ["documents"] });
+      if (doc.status === "failed") {
+        toast(`${doc.filename}: ${doc.error || "couldn't read this file"}`, "error");
+        return;
+      }
+      if (!useChatStore.getState().selectedDocumentIds.includes(doc.id)) toggleDocument(doc.id);
+      toast(`Attached ${doc.filename} — answers will use it`);
+    },
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
+  const onFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow picking the same file again
+    if (file) attach.mutate(file);
+  };
+
+  // 🎤 Dictation appends each recognized phrase to the prompt.
+  const dictation = useDictation(
+    (text) => {
+      setValue((v) => (v && !v.endsWith(" ") ? `${v} ${text}` : `${v}${text}`));
+      requestAnimationFrame(autoGrow);
+    },
+    (message) => toast(message, "error"),
+  );
   const openKnowledge = useUiStore((s) => s.setKnowledgeOpen);
   const kbActive = useKnowledgeBase || selectedDocumentIds.length > 0;
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -49,6 +95,7 @@ export const PromptInput = ({ onSubmit, onStop, isPending }: PromptInputProps) =
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
     if (!canSubmit) return;
+    if (dictation.listening) dictation.stop();
     onSubmit(value.trim());
     setValue("");
     if (ref.current) ref.current.style.height = "auto";
@@ -128,9 +175,37 @@ export const PromptInput = ({ onSubmit, onStop, isPending }: PromptInputProps) =
           onKeyDown={onKeyDown}
           rows={1}
           maxLength={MAX_PROMPT_CHARS}
-          placeholder="Ask anything — it will be sent to every selected model…"
+          placeholder={
+            dictation.listening ? "Listening… speak now" : "Ask anything — it will be sent to every selected model…"
+          }
           className="max-h-56 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
         />
+        <input ref={fileRef} type="file" accept={ATTACH_ACCEPT} onChange={onFile} className="hidden" />
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          onClick={() => fileRef.current?.click()}
+          disabled={attach.isPending}
+          aria-label="Attach a file"
+          title="Attach a file (PDF, Word, text, code…)"
+        >
+          {attach.isPending ? <Loader2 size={16} className="animate-spin" /> : <Paperclip size={16} />}
+        </Button>
+        {dictation.supported && (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            onClick={dictation.listening ? dictation.stop : dictation.start}
+            aria-label={dictation.listening ? "Stop voice input" : "Voice input"}
+            aria-pressed={dictation.listening}
+            title={dictation.listening ? "Stop voice input" : "Voice input"}
+            className={cn(dictation.listening && "animate-pulse bg-red-500/15 text-red-300 hover:bg-red-500/20")}
+          >
+            <Mic size={16} />
+          </Button>
+        )}
         {isPending ? (
           <Button
             type="button"
