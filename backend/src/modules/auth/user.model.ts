@@ -19,6 +19,8 @@ const userSchema = new Schema(
     role: { type: String, enum: ["user", "admin"], default: "user", index: true },
     emailVerified: { type: Boolean, default: false },
     lastLoginAt: { type: Date, default: null },
+    /** Free-text guidance applied to every answer (like ChatGPT's custom instructions). */
+    customInstructions: { type: String, default: "", maxlength: 2000 },
   },
   { timestamps: true },
 );
@@ -33,6 +35,7 @@ export interface PublicUser {
   name: string;
   role: "user" | "admin";
   emailVerified: boolean;
+  customInstructions: string;
   createdAt: Date;
 }
 
@@ -42,5 +45,6 @@ export const toPublicUser = (u: UserDoc): PublicUser => ({
   name: u.name,
   role: u.role,
   emailVerified: u.emailVerified,
+  customInstructions: u.customInstructions ?? "",
   createdAt: u.createdAt,
 });
