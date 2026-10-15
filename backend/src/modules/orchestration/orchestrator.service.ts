@@ -2,6 +2,7 @@ import { env } from "../../config/env.js";
 import { findModel } from "../../config/providers.js";
 import { logger } from "../../shared/logger.js";
 import { styleInstruction, type AnswerStyle } from "../../shared/answerStyle.js";
+import { instructionsBlock, type PromptContext } from "../../shared/promptContext.js";
 import type { FailedResponse, NormalizedResponse } from "../../shared/engine.types.js";
 import { getProvider } from "../ai/provider.registry.js";
 import type { ChatMessage } from "../ai/provider.types.js";
@@ -20,18 +21,19 @@ export interface OrchestrationStreamHandlers {
   onModelError: (failure: FailedResponse) => void;
 }
 
-export interface RunOptions {
+export interface RunOptions extends PromptContext {
   /** Caller cancellation (e.g. the SSE client disconnected). */
   signal?: AbortSignal;
   style?: AnswerStyle;
 }
 
-const systemPrompt = (style?: AnswerStyle): ChatMessage => ({
+const systemPrompt = (style?: AnswerStyle, instructions?: string): ChatMessage => ({
   role: "system",
   content:
     "You are a helpful, accurate expert assistant. Answer clearly and completely, " +
     "using markdown structure (headings, lists, code blocks) where helpful." +
-    styleInstruction(style),
+    styleInstruction(style) +
+    instructionsBlock(instructions),
 });
 
 /**
@@ -42,7 +44,7 @@ const runModel = async (
   prompt: string,
   model: string,
   onDelta?: (delta: string) => void,
-  { signal: parentSignal, style }: RunOptions = {},
+  { signal: parentSignal, style, history = [], instructions }: RunOptions = {},
 ): Promise<NormalizedResponse> => {
   const provider = getProvider();
   const descriptor = findModel(model);
@@ -59,7 +61,11 @@ const runModel = async (
   parentSignal?.addEventListener("abort", onParentAbort, { once: true });
   const startedAt = Date.now();
   try {
-    const messages = [systemPrompt(style), { role: "user" as const, content: prompt }];
+    const messages: ChatMessage[] = [
+      systemPrompt(style, instructions),
+      ...history,
+      { role: "user", content: prompt },
+    ];
     const res = onDelta
       ? await provider.chatStream({ model, messages, temperature: 0.7, signal: controller.signal }, onDelta)
       : await provider.chat({ model, messages, temperature: 0.7, signal: controller.signal });
