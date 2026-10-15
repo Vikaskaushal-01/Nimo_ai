@@ -91,21 +91,48 @@ export const ChatPage = () => {
   }, [conversationId]);
 
   const send = (payload: StreamDecisionPayload) => {
+    if (payload.models.length === 0) {
+      toast("Select at least one model first", "error");
+      return;
+    }
     setError(null);
     lastPayloadRef.current = payload;
     streamConvRef.current = conversationId;
     start(payload);
   };
 
-  const onSubmit = (prompt: string) =>
-    send({
-      prompt,
-      models: selectedModels,
-      conversationId: conversationId ?? undefined,
-      useKnowledgeBase: useKnowledgeBase || selectedDocumentIds.length > 0,
-      documentIds: selectedDocumentIds.length > 0 ? selectedDocumentIds : undefined,
-      style: answerStyle,
+  const buildPayload = (prompt: string): StreamDecisionPayload => ({
+    prompt,
+    models: selectedModels,
+    conversationId: conversationId ?? undefined,
+    useKnowledgeBase: useKnowledgeBase || selectedDocumentIds.length > 0,
+    documentIds: selectedDocumentIds.length > 0 ? selectedDocumentIds : undefined,
+    style: answerStyle,
+  });
+
+  const onSubmit = (prompt: string) => send(buildPayload(prompt));
+
+  /**
+   * Edit / regenerate: cut the thread back to `message` (server and cache),
+   * then send the new prompt in its place so history stays linear.
+   */
+  const replaceAndSend = async (message: MessageData, prompt: string, regenerate: boolean) => {
+    if (state.active) return;
+    try {
+      await api.deleteMessagesFrom(message.conversationId, message._id);
+    } catch (e) {
+      toast((e as Error).message, "error");
+      return;
+    }
+    qc.setQueryData<StoredMessage[]>(["messages", message.conversationId], (old) => {
+      const i = old?.findIndex((m) => m._id === message._id) ?? -1;
+      return old && i >= 0 ? old.slice(0, i) : old;
     });
+    send({ ...buildPayload(prompt), ...(regenerate ? { regenerate: true } : {}) });
+  };
+
+  const onEdit = (message: MessageData, prompt: string) => replaceAndSend(message, prompt, false);
+  const onRegenerate = (message: MessageData) => replaceAndSend(message, message.prompt, true);
 
   const retry = () => {
     const last = lastPayloadRef.current;
@@ -193,8 +220,16 @@ export const ChatPage = () => {
               <EmptyState onPick={setPrefill} />
             ) : (
               <div className="space-y-8">
-                {messages.map((m) => (
-                  <MessageItem key={m._id} message={m as unknown as MessageData} />
+                {messages.map((m, i) => (
+                  <MessageItem
+                    key={m._id}
+                    message={m as unknown as MessageData}
+                    isLast={i === messages.length - 1 && !state.active}
+                    busy={state.active}
+                    onEdit={onEdit}
+                    onRegenerate={onRegenerate}
+                    onAsk={onSubmit}
+                  />
                 ))}
                 {state.active && <StreamingDecision state={state} />}
               </div>

@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Check, Copy, Database, Sparkles, Timer, TriangleAlert } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Badge, Card } from "@/components/ui/Card";
 import { Markdown } from "@/components/ui/Markdown";
 import { formatMs, vendorColor } from "@/lib/utils";
@@ -16,6 +16,8 @@ interface DecisionResultViewProps {
   contributionMap: ContributionEntry[];
   ranking: RankedResponse[];
   meta: DecisionMeta;
+  /** Rendered right under the answer (feedback, regenerate, follow-ups). */
+  actions?: ReactNode;
 }
 
 /** Renders one fused assistant result: optimized answer + full analytics. */
@@ -25,6 +27,7 @@ export const DecisionResultView = ({
   contributionMap,
   ranking,
   meta,
+  actions,
 }: DecisionResultViewProps) => {
   const [copied, setCopied] = useState(false);
   const best = ranking[0];
@@ -94,6 +97,8 @@ export const DecisionResultView = ({
           )}
         </div>
       </Card>
+
+      {actions}
 
       {/* Analytics */}
       {ranking.length > 0 && (
