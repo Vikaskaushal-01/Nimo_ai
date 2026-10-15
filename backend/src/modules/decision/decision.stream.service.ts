@@ -65,7 +65,7 @@ export const runDecisionStream = async (
 
   // ── Cache fast-path: no streaming, return the stored result immediately. ──
   const key = decisionCacheKey(input);
-  const cached = key ? await cacheGet<DecisionResult>(key) : null;
+  const cached = key && !input.regenerate ? await cacheGet<DecisionResult>(key) : null;
   if (cached) {
     logger.info("Decision cache hit (stream)", { models });
     emit({ type: "ranked", ranking: cached.ranking });
@@ -90,6 +90,7 @@ export const runDecisionStream = async (
 
   // ── 2. Orchestrate with live token streaming ──────────────────────────────
   emit({ type: "stage", stage: "querying" });
+  const context = { history: input.history, instructions: input.instructions };
   const failed: FailedResponse[] = [];
   const { responses } = await orchestrateStream(augmentedPrompt, models, {
     onToken: (model, delta) => emit({ type: "token", model, delta }),
@@ -105,7 +106,7 @@ export const runDecisionStream = async (
       failed.push(f);
       emit({ type: "model_error", model: f.model, label: f.label, error: f.error });
     },
-  }, { signal, style: input.style });
+  }, { signal, style: input.style, ...context });
 
   // Client went away: don't spend more tokens on evaluation/fusion or persist
   // a half-finished decision nobody is waiting for.
@@ -127,7 +128,7 @@ export const runDecisionStream = async (
 
   // ── 5. Fuse ───────────────────────────────────────────────────────────────
   emit({ type: "stage", stage: "fusing" });
-  const fusion = await fuseResponses(prompt, ranking, input.style);
+  const fusion = await fuseResponses(prompt, ranking, input.style, context);
   if (signal?.aborted) return;
 
   const result: DecisionResult = {
@@ -135,6 +136,7 @@ export const runDecisionStream = async (
     optimizedAnswer: fusion.optimizedAnswer,
     reasoningSummary: fusion.reasoningSummary,
     contributionMap: fusion.contributionMap,
+    followUps: fusion.followUps,
     ranking,
     meta: {
       totalLatencyMs: Date.now() - startedAt,
