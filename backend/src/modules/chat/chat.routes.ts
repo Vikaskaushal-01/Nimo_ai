@@ -5,9 +5,12 @@ import {
   createConversationSchema,
   deleteAllConversationsHandler,
   deleteConversationHandler,
+  deleteMessagesFromHandler,
   getConversationHandler,
   listConversationsHandler,
   listMessagesHandler,
+  messageFeedbackHandler,
+  messageFeedbackSchema,
   updateConversationHandler,
   updateConversationSchema,
 } from "./chat.controller.js";
@@ -29,3 +32,10 @@ chatRouter.patch(
 );
 chatRouter.delete("/conversations/:id", deleteConversationHandler);
 chatRouter.get("/conversations/:id/messages", listMessagesHandler);
+// Cuts the thread back to (and including) this message — for edit / regenerate.
+chatRouter.delete("/conversations/:id/messages/:messageId", deleteMessagesFromHandler);
+chatRouter.patch(
+  "/conversations/:id/messages/:messageId",
+  validate(messageFeedbackSchema),
+  messageFeedbackHandler,
+);

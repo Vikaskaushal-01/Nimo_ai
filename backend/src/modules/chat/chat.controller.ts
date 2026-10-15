@@ -49,6 +49,20 @@ export const deleteConversationHandler = asyncHandler(async (req, res) => {
   ok(res, { deleted: true });
 });
 
+export const messageFeedbackSchema = z.object({
+  feedback: z.enum(["up", "down"]).nullable(),
+});
+
+export const deleteMessagesFromHandler = asyncHandler(async (req, res) => {
+  const deleted = await chat.deleteMessagesFrom(req.params.id, req.params.messageId, currentUser(req).sub);
+  ok(res, { deleted });
+});
+
+export const messageFeedbackHandler = asyncHandler(async (req, res) => {
+  const { feedback } = req.body as z.infer<typeof messageFeedbackSchema>;
+  ok(res, await chat.setMessageFeedback(req.params.id, req.params.messageId, currentUser(req).sub, feedback));
+});
+
 export const listMessagesHandler = asyncHandler(async (req, res) => {
   const messages = await chat.listMessages(req.params.id, currentUser(req).sub);
   ok(res, messages);
