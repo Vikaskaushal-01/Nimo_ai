@@ -16,9 +16,14 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-export const updateProfileSchema = z.object({
-  name: z.string().trim().min(1).max(80),
-});
+export const updateProfileSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80).optional(),
+    customInstructions: z.string().trim().max(2000).optional(),
+  })
+  .refine((v) => v.name !== undefined || v.customInstructions !== undefined, {
+    message: "Provide a name or custom instructions",
+  });
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
@@ -57,8 +62,8 @@ export const logoutHandler = asyncHandler(async (req, res) => {
 });
 
 export const updateProfileHandler = asyncHandler(async (req, res) => {
-  const { name } = req.body as z.infer<typeof updateProfileSchema>;
-  ok(res, await auth.updateProfile(currentUser(req).sub, name));
+  const { name, customInstructions } = req.body as z.infer<typeof updateProfileSchema>;
+  ok(res, await auth.updateProfile(currentUser(req).sub, { name, customInstructions }));
 });
 
 export const changePasswordHandler = asyncHandler(async (req, res) => {

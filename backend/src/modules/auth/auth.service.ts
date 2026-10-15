@@ -108,8 +108,11 @@ export const logout = async (rawToken: string): Promise<void> => {
 };
 
 /** Updates editable profile fields. */
-export const updateProfile = async (userId: string, name: string): Promise<PublicUser> => {
-  const user = await User.findByIdAndUpdate(userId, { $set: { name } }, { new: true });
+export const updateProfile = async (
+  userId: string,
+  changes: { name?: string; customInstructions?: string },
+): Promise<PublicUser> => {
+  const user = await User.findByIdAndUpdate(userId, { $set: changes }, { new: true });
   if (!user) throw AppError.notFound("User not found");
   return toPublicUser(user);
 };
