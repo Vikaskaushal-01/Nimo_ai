@@ -111,6 +111,14 @@ backend to the frontend's origin.
 - **Pick models** with the chips above the prompt box (hover for price and
   context size) or a one-click preset — **Fast**, **Balanced**, **Best**.
 - **Answer style**: Concise, Balanced or Detailed, applied to every model and the fused answer.
+- **Conversation memory**: follow-up questions see the last 6 turns of the chat.
+- **Custom instructions** (Settings): tell every model about you and how to answer.
+- **Edit** any sent question (pencil icon) or **Regenerate** the latest answer —
+  the thread is cut back to that point and re-asked.
+- **Suggested follow-ups** under the latest answer — one click to ask.
+- **👍 / 👎 feedback** and **Read aloud** on every answer.
+- **Voice input** (🎤) and **Attach a file** (📎) from the message box; attached
+  files are indexed into your Knowledge Base and used for that chat.
 - **Stop** a running request with the ■ button — your prompt is put back for editing.
 - **Example prompts** on the start screen, **Retry** on failed requests, and
   **Reuse prompt** (↵ icon next to any past question).
