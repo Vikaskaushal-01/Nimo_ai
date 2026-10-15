@@ -4,6 +4,7 @@ export interface User {
   name: string;
   role: "user" | "admin";
   emailVerified: boolean;
+  customInstructions?: string;
   createdAt: string;
 }
 

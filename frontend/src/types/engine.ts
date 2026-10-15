@@ -62,9 +62,13 @@ export interface DecisionResult {
   optimizedAnswer: string;
   reasoningSummary: string;
   contributionMap: ContributionEntry[];
+  /** Suggested next questions (missing on older messages). */
+  followUps?: string[];
   ranking: RankedResponse[];
   meta: DecisionMeta;
 }
+
+export type Feedback = "up" | "down" | null;
 
 export interface ModelInfo {
   id: string;
@@ -89,6 +93,7 @@ export interface StoredMessage extends Omit<DecisionResult, "conversationId" | "
   _id: string;
   conversationId: string;
   requestedModels: string[];
+  feedback?: Feedback;
   createdAt: string;
 }
 
