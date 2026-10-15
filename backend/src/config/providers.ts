@@ -112,6 +112,14 @@ export const MODEL_CATALOG: ModelDescriptor[] = [
     contextWindow: 1_000_000,
     enabled: true,
   },
+  {
+    id: "nvidia/nemotron-3-super-120b-a12b:free",
+    label: "Nemotron 3 Super",
+    vendor: "NVIDIA",
+    pricing: { promptPer1k: 0, completionPer1k: 0 },
+    contextWindow: 262_144,
+    enabled: true,
+  },
 ];
 
 export const enabledModels = (): ModelDescriptor[] =>
