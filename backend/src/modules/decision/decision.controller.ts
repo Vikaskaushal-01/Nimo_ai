@@ -7,7 +7,8 @@ import { asyncHandler } from "../../shared/asyncHandler.js";
 import { currentUser } from "../../middleware/auth.js";
 import { logger } from "../../shared/logger.js";
 import { assertConversationOwned } from "../chat/chat.service.js";
-import { runDecision } from "./decision.service.js";
+import { loadHistory, loadInstructions } from "./decision.context.js";
+import { runDecision, type DecisionInput } from "./decision.service.js";
 import { runDecisionStream, type DecisionStreamEvent } from "./decision.stream.service.js";
 
 const enabledIds = new Set(enabledModels().map((m) => m.id));
@@ -22,6 +23,7 @@ export const decisionSchema = z.object({
   useKnowledgeBase: z.boolean().optional(),
   documentIds: z.array(z.string()).max(50).optional(),
   style: z.enum(ANSWER_STYLES).optional(),
+  regenerate: z.boolean().optional(),
 });
 
 type DecisionBody = z.infer<typeof decisionSchema>;
@@ -40,20 +42,32 @@ const preflight = async (body: DecisionBody, ownerId: string): Promise<string[]>
   return [...new Set(body.models)];
 };
 
-export const createDecisionHandler = asyncHandler(async (req, res) => {
-  const body = req.body as DecisionBody;
-  const ownerId = currentUser(req).sub;
-  const unique = await preflight(body, ownerId);
-
-  const result = await runDecision({
+/** Validated request → pipeline input, with conversation memory and custom instructions. */
+const toInput = async (body: DecisionBody, ownerId: string, models: string[]): Promise<DecisionInput> => {
+  const [history, instructions] = await Promise.all([
+    loadHistory(body.conversationId),
+    loadInstructions(ownerId),
+  ]);
+  return {
     prompt: body.prompt,
-    models: unique,
+    models,
     ownerId,
     conversationId: body.conversationId,
     useKnowledgeBase: body.useKnowledgeBase,
     documentIds: body.documentIds,
     style: body.style,
-  });
+    regenerate: body.regenerate,
+    history,
+    instructions,
+  };
+};
+
+export const createDecisionHandler = asyncHandler(async (req, res) => {
+  const body = req.body as DecisionBody;
+  const ownerId = currentUser(req).sub;
+  const unique = await preflight(body, ownerId);
+
+  const result = await runDecision(await toInput(body, ownerId, unique));
 
   ok(res, result, 201, { fromCache: result.meta.fromCache });
 });
@@ -68,6 +82,7 @@ export const streamDecisionHandler = asyncHandler(async (req, res) => {
   const ownerId = currentUser(req).sub;
   // Runs before the SSE headers go out, so failures are normal JSON errors.
   const unique = await preflight(body, ownerId);
+  const input = await toInput(body, ownerId, unique);
 
   // SSE headers.
   res.setHeader("Content-Type", "text/event-stream");
@@ -99,19 +114,7 @@ export const streamDecisionHandler = asyncHandler(async (req, res) => {
   }, 15_000);
 
   try {
-    await runDecisionStream(
-      {
-        prompt: body.prompt,
-        models: unique,
-        ownerId,
-        conversationId: body.conversationId,
-        useKnowledgeBase: body.useKnowledgeBase,
-        documentIds: body.documentIds,
-        style: body.style,
-      },
-      send,
-      abort.signal,
-    );
+    await runDecisionStream(input, send, abort.signal);
   } catch (err) {
     logger.error("Streaming decision failed", { requestId: req.id, error: String(err) });
     // Only operational errors carry a message that is safe to show the client.
